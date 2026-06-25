@@ -1,5 +1,5 @@
-FROM rust:1.82-alpine AS builder
-RUN apk add --no-cache musl-dev sqlite-dev
+FROM rust:1.88-alpine AS builder
+RUN apk add --no-cache musl-dev sqlite-dev openssl-dev openssl-libs-static
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 # Cache deps layer
