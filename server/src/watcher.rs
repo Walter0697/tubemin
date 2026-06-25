@@ -1,54 +1,36 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use sqlx::SqlitePool;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher, Config as NotifyConfig};
-use notify::event::{EventKind};
+use tokio::time::{interval, Duration};
 use tracing::{error, info};
+
+const POLL_INTERVAL_SECS: u64 = 5;
 
 pub fn start(
     downloads_dir: PathBuf,
     import_dir: PathBuf,
     pool: Arc<SqlitePool>,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::task::spawn_blocking(move || {
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut watcher = RecommendedWatcher::new(tx, NotifyConfig::default())
-            .expect("Failed to create watcher");
-        watcher.watch(&downloads_dir, RecursiveMode::NonRecursive)
-            .expect("Failed to watch downloads dir");
+    tokio::spawn(async move {
+        let mut seen: HashSet<PathBuf> = HashSet::new();
+        let mut ticker = interval(Duration::from_secs(POLL_INTERVAL_SECS));
 
-        // Process any files already present before the watcher started
-        let rt = tokio::runtime::Handle::current();
-        if let Ok(entries) = std::fs::read_dir(&downloads_dir) {
+        loop {
+            ticker.tick().await;
+
+            let entries = match std::fs::read_dir(&downloads_dir) {
+                Ok(e) => e,
+                Err(e) => { error!("Failed to read downloads dir: {}", e); continue; }
+            };
+
             for entry in entries.flatten() {
                 let path = entry.path();
-                if path.is_file() && !is_temp_file(&path) {
-                    let import_dir = import_dir.clone();
-                    let pool = pool.clone();
-                    rt.spawn(async move {
-                        handle_new_file(path, &import_dir, &pool).await;
-                    });
+                if !path.is_file() || is_temp_file(&path) || seen.contains(&path) {
+                    continue;
                 }
-            }
-        }
-
-        for result in rx {
-            match result {
-                Ok(event) => {
-                    match event.kind {
-                        EventKind::Create(_) => {
-                            for path in event.paths {
-                                let import_dir = import_dir.clone();
-                                let pool = pool.clone();
-                                rt.spawn(async move {
-                                    handle_new_file(path, &import_dir, &pool).await;
-                                });
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-                Err(e) => error!("Watcher error: {}", e),
+                seen.insert(path.clone());
+                handle_new_file(path, &import_dir, &pool).await;
             }
         }
     })
@@ -59,7 +41,7 @@ pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
     if matches!(ext, "part" | "ytdl" | "tmp") {
         return true;
     }
-    // MeTube names in-progress files as video.temp.webm — stem ends with ".temp"
+    // MeTube names in-progress files as video.temp.ext — stem ends with ".temp"
     path.file_stem()
         .and_then(|s| s.to_str())
         .map(|s| s.ends_with(".temp"))
@@ -71,9 +53,6 @@ pub(crate) async fn handle_new_file(
     import_dir: &PathBuf,
     pool: &SqlitePool,
 ) {
-    if is_temp_file(&path) {
-        return;
-    }
     let filename = match path.file_name().and_then(|n| n.to_str()) {
         Some(n) => n.to_string(),
         None => return,
@@ -114,7 +93,6 @@ mod tests {
         let dst_dir = tempfile::tempdir().unwrap();
         let pool = Arc::new(crate::db::init("sqlite::memory:").await.unwrap());
 
-        // Create a test file in src_dir
         let test_file = src_dir.path().join("video.mp4");
         std::fs::write(&test_file, b"fake video").unwrap();
 
