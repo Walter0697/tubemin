@@ -29,6 +29,7 @@
 
   <h2>API Keys</h2>
   <form method="POST" action="/settings/keys/generate">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <button type="submit">Generate New Key</button>
   </form>
   <table>
@@ -42,6 +43,7 @@
         <td>{{ key.last_used_at | default("never") }}</td>
         <td>
           <form method="POST" action="/settings/keys/{{ key.id }}/revoke">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit">Revoke</button>
           </form>
         </td>

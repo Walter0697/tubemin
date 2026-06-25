@@ -60,7 +60,9 @@ pub(crate) async fn handle_new_file(
         None => return,
     };
     let dest = import_dir.join(&filename);
-    match std::fs::rename(&path, &dest) {
+    let move_result = std::fs::copy(&path, &dest)
+        .and_then(|_| std::fs::remove_file(&path));
+    match move_result {
         Ok(_) => {
             info!("Moved {} to import dir", filename);
             let _ = crate::db::mark_imported(pool, &filename).await;

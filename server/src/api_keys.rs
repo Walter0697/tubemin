@@ -44,12 +44,19 @@ pub async fn verify_key(pool: &SqlitePool, plaintext: &str) -> Result<Option<Str
     .fetch_all(pool)
     .await?;
 
-    for (id, key_hash) in keys {
-        if verify(plaintext, &key_hash)? {
-            return Ok(Some(id));
+    let plaintext = plaintext.to_string();
+    let result = tokio::task::spawn_blocking(move || {
+        for (id, key_hash) in keys {
+            if verify(&plaintext, &key_hash).unwrap_or(false) {
+                return Some(id);
+            }
         }
-    }
-    Ok(None)
+        None
+    })
+    .await
+    .unwrap_or(None);
+
+    Ok(result)
 }
 
 pub async fn list(pool: &SqlitePool) -> Result<Vec<ApiKey>, ApiKeyError> {

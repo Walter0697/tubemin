@@ -9,6 +9,7 @@ pub async fn dashboard(
     let submissions = db::list_submissions(&state.pool).await.unwrap_or_default();
 
     let mut env = Environment::new();
+    env.set_auto_escape_callback(|_| minijinja::AutoEscape::Html);
     env.add_template("dashboard", include_str!("../../templates/dashboard.html")).unwrap();
     let tmpl = env.get_template("dashboard").unwrap();
 
