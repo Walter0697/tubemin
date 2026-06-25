@@ -4,6 +4,7 @@ mod api_keys;
 mod metube;
 mod state;
 mod handlers;
+mod watcher;
 
 #[tokio::main]
 async fn main() {
