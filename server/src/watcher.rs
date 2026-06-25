@@ -17,7 +17,21 @@ pub fn start(
         watcher.watch(&downloads_dir, RecursiveMode::NonRecursive)
             .expect("Failed to watch downloads dir");
 
+        // Process any files already present before the watcher started
         let rt = tokio::runtime::Handle::current();
+        if let Ok(entries) = std::fs::read_dir(&downloads_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() && !is_temp_file(&path) {
+                    let import_dir = import_dir.clone();
+                    let pool = pool.clone();
+                    rt.spawn(async move {
+                        handle_new_file(path, &import_dir, &pool).await;
+                    });
+                }
+            }
+        }
+
         for result in rx {
             match result {
                 Ok(event) => {
