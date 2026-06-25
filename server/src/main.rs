@@ -59,6 +59,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let app = Router::new()
+        .route("/", get(|| async { axum::response::Redirect::to("/auth/login") }))
         .route("/api/submit", post(handlers::submit))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
