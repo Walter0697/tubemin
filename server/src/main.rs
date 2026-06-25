@@ -2,6 +2,7 @@ mod config;
 mod db;
 mod api_keys;
 mod metube;
+mod oidc;
 mod state;
 mod handlers;
 mod watcher;
