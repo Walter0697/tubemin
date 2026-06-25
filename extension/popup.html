@@ -48,6 +48,13 @@
     }
     .success { color: #2a2; }
     .error { color: #c00; }
+    #footer {
+      margin-top: 14px;
+      font-size: 0.75rem;
+      color: #aaa;
+      text-align: right;
+    }
+    #footer a { color: #2563eb; cursor: pointer; text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -56,6 +63,7 @@
   <button id="send-btn" type="button" disabled>Send to Tubemin</button>
   <div id="hint"></div>
   <div id="status"></div>
+  <div id="footer"><a id="settings-link">Settings</a></div>
 
   <script src="popup.js"></script>
 </body>

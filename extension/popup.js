@@ -4,25 +4,32 @@ const sendBtn = document.getElementById('send-btn');
 const urlPreview = document.getElementById('url-preview');
 const hint = document.getElementById('hint');
 const statusEl = document.getElementById('status');
+const settingsLink = document.getElementById('settings-link');
 
 let currentUrl = '';
 let serverUrl = '';
 let apiKey = '';
 
-function setReady() {
-  sendBtn.disabled = false;
-  hint.innerHTML = '';
+settingsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
+
+async function validateConnection() {
+  try {
+    const resp = await fetch(`${serverUrl}/api/validate`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (resp.ok) {
+      sendBtn.disabled = false;
+      hint.textContent = '';
+    } else if (resp.status === 401) {
+      hint.textContent = 'Invalid API key — check Settings.';
+    } else {
+      hint.textContent = `Server error (${resp.status}).`;
+    }
+  } catch {
+    hint.textContent = 'Cannot reach server — check Settings.';
+  }
 }
 
-function setUnconfigured() {
-  sendBtn.disabled = true;
-  hint.innerHTML = 'Configure your server in <a id="settings-link">Settings</a>.';
-  document.getElementById('settings-link')?.addEventListener('click', () => {
-    chrome.runtime.openOptionsPage();
-  });
-}
-
-// Load config and current tab URL in parallel
 Promise.all([
   new Promise((resolve) => {
     chrome.storage.sync.get(['serverUrl', 'apiKey'], (data) => {
@@ -40,10 +47,12 @@ Promise.all([
   }),
 ]).then(() => {
   if (serverUrl && apiKey) {
-    setReady();
+    validateConnection();
   } else {
-    setUnconfigured();
+    hint.textContent = 'Configure your server in Settings.';
   }
+}).catch(() => {
+  hint.textContent = 'Extension error — try reloading.';
 });
 
 sendBtn.addEventListener('click', async () => {
@@ -71,7 +80,7 @@ sendBtn.addEventListener('click', async () => {
       statusEl.className = 'error';
       statusEl.textContent = `Error ${resp.status}. Check server logs.`;
     }
-  } catch (e) {
+  } catch {
     statusEl.className = 'error';
     statusEl.textContent = 'Could not reach server. Check Settings.';
   } finally {
