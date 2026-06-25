@@ -1,0 +1,11 @@
+# Caddyfile
+{$TUBEMIN_DOMAIN} {
+    reverse_proxy /api/* tubemin:3000
+    reverse_proxy /auth/* tubemin:3000
+    reverse_proxy /dashboard tubemin:3000
+    reverse_proxy /settings* tubemin:3000
+}
+
+{$PEERTUBE_DOMAIN} {
+    reverse_proxy peertube:9000
+}
