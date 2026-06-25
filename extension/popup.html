@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tubemin</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      width: 280px;
+      padding: 16px;
+      margin: 0;
+      color: #222;
+    }
+    h1 { font-size: 1rem; margin: 0 0 12px; }
+    #url-preview {
+      font-size: 0.75rem;
+      color: #666;
+      margin-bottom: 12px;
+      word-break: break-all;
+      min-height: 1em;
+    }
+    #send-btn {
+      width: 100%;
+      padding: 10px;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    #send-btn:hover:not(:disabled) { background: #1d4ed8; }
+    #send-btn:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    #hint {
+      font-size: 0.75rem;
+      color: #888;
+      margin-top: 8px;
+      min-height: 1em;
+    }
+    #hint a { color: #2563eb; cursor: pointer; text-decoration: underline; }
+    #status {
+      font-size: 0.8rem;
+      margin-top: 10px;
+      min-height: 1.2em;
+    }
+    .success { color: #2a2; }
+    .error { color: #c00; }
+  </style>
+</head>
+<body>
+  <h1>Tubemin</h1>
+  <div id="url-preview"></div>
+  <button id="send-btn" type="button" disabled>Send to Tubemin</button>
+  <div id="hint"></div>
+  <div id="status"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
