@@ -1,0 +1,55 @@
+<!-- server/templates/settings.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tubemin — Settings</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
+    h1, h2 { font-size: 1.5rem; }
+    h2 { font-size: 1.2rem; margin-top: 2rem; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
+    th { background: #f5f5f5; }
+    .new-key { background: #fffbe6; border: 1px solid #f0c040; padding: 12px; margin-top: 1rem; }
+    nav a { margin-right: 1rem; }
+    form { display: inline; }
+  </style>
+</head>
+<body>
+  <nav><a href="/dashboard">Dashboard</a><a href="/settings">Settings</a></nav>
+  <h1>Settings</h1>
+
+  {% if new_key %}
+  <div class="new-key">
+    <strong>New API key (copy now — shown once):</strong><br>
+    <code>{{ new_key }}</code>
+  </div>
+  {% endif %}
+
+  <h2>API Keys</h2>
+  <form method="POST" action="/settings/keys/generate">
+    <button type="submit">Generate New Key</button>
+  </form>
+  <table>
+    <thead><tr><th>ID</th><th>Label</th><th>Created</th><th>Last Used</th><th></th></tr></thead>
+    <tbody>
+      {% for key in api_keys %}
+      <tr>
+        <td>{{ key.id | truncate(8) }}</td>
+        <td>{{ key.label | default("-") }}</td>
+        <td>{{ key.created_at }}</td>
+        <td>{{ key.last_used_at | default("never") }}</td>
+        <td>
+          <form method="POST" action="/settings/keys/{{ key.id }}/revoke">
+            <button type="submit">Revoke</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5">No API keys. Generate one above.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</body>
+</html>
