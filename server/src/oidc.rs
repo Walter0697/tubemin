@@ -90,6 +90,14 @@ pub async fn callback(
         None => return StatusCode::BAD_REQUEST.into_response(),
     };
 
+    let stored_csrf: String = match session.get(SESSION_CSRF_KEY).await.ok().flatten() {
+        Some(v) => v,
+        None => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    if stored_csrf != params.state {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
     let nonce_secret: String = match session.get(SESSION_NONCE_KEY).await.ok().flatten() {
         Some(v) => v,
         None => return StatusCode::BAD_REQUEST.into_response(),
