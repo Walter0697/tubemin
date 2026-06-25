@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tracing::error;
 use uuid::Uuid;
 use crate::state::AppState;
 use crate::{api_keys, db, metube};
@@ -32,17 +33,22 @@ pub async fn submit(
     let key_id = match api_keys::verify_key(&state.pool, &key).await {
         Ok(Some(id)) => id,
         Ok(None) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "invalid API key"}))).into_response(),
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response(),
+        Err(e) => {
+            error!(error = %e, "db error verifying API key");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
+        }
     };
 
     let _ = api_keys::update_last_used(&state.pool, &key_id).await;
 
-    if let Err(_) = metube::submit(&state.config.metube_url, &body.url).await {
+    if let Err(e) = metube::submit(&state.config.metube_url, &body.url).await {
+        error!(error = %e, "failed to submit URL to metube");
         return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "metube unavailable"}))).into_response();
     }
 
     let id = Uuid::new_v4().to_string();
-    if let Err(_) = db::create_submission(&state.pool, &id, &body.url).await {
+    if let Err(e) = db::create_submission(&state.pool, &id, &body.url).await {
+        error!(error = %e, "db error creating submission record");
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
     }
 
