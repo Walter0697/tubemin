@@ -4,6 +4,7 @@ mod db;
 mod handlers;
 mod metube;
 mod oidc;
+mod password_auth;
 mod state;
 mod watcher;
 
@@ -20,6 +21,7 @@ async fn main() -> anyhow::Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    dotenvy::dotenv().ok();
     let config = config::Config::from_env()?;
     let pool = Arc::new(db::init(&config.database_url).await?);
     let config = Arc::new(config);
@@ -40,13 +42,25 @@ async fn main() -> anyhow::Result<()> {
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store);
 
+    // Auth routes depend on configured mode
+    let auth_router: Router<state::AppState> = match config.auth_mode {
+        config::AuthMode::Oidc => {
+            tracing::info!("Auth mode: OIDC");
+            Router::new()
+                .route("/auth/login", get(oidc::login))
+                .route("/auth/callback", get(oidc::callback))
+        }
+        config::AuthMode::Password => {
+            tracing::info!("Auth mode: password");
+            Router::new()
+                .route("/auth/login", get(password_auth::login_form).post(password_auth::login_submit))
+                .route("/auth/logout", get(password_auth::logout))
+        }
+    };
+
     let app = Router::new()
-        // Public API
         .route("/api/submit", post(handlers::submit))
-        // OIDC auth
-        .route("/auth/login", get(oidc::login))
-        .route("/auth/callback", get(oidc::callback))
-        // OIDC-protected pages
+        .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
         .route("/settings", get(handlers::settings))
         .route("/settings/keys/generate", post(handlers::generate_key))

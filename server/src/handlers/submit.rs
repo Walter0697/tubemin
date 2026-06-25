@@ -81,10 +81,12 @@ mod tests {
             downloads_dir: "/tmp/downloads".into(),
             peertube_import_dir: "/tmp/import".into(),
             database_url: "sqlite::memory:".into(),
-            oidc_issuer_url: "https://auth.example.com".into(),
-            oidc_client_id: "tubemin".into(),
-            oidc_client_secret: "secret".into(),
-            oidc_redirect_url: "https://tubemin.example.com/auth/callback".into(),
+            auth_mode: crate::config::AuthMode::Password,
+            admin_password: None,
+            oidc_issuer_url: None,
+            oidc_client_id: None,
+            oidc_client_secret: None,
+            oidc_redirect_url: None,
         });
 
         let state = AppState { pool: pool.clone(), config };

@@ -32,18 +32,27 @@ pub struct CallbackParams {
 }
 
 pub async fn build_oidc_client(config: &crate::config::Config) -> anyhow::Result<CoreClient> {
+    let issuer = config.oidc_issuer_url.as_deref()
+        .ok_or_else(|| anyhow::anyhow!("OIDC_ISSUER_URL not configured"))?;
+    let client_id = config.oidc_client_id.as_deref()
+        .ok_or_else(|| anyhow::anyhow!("OIDC_CLIENT_ID not configured"))?;
+    let client_secret = config.oidc_client_secret.as_deref()
+        .ok_or_else(|| anyhow::anyhow!("OIDC_CLIENT_SECRET not configured"))?;
+    let redirect_url = config.oidc_redirect_url.as_deref()
+        .ok_or_else(|| anyhow::anyhow!("OIDC_REDIRECT_URL not configured"))?;
+
     let provider_metadata = CoreProviderMetadata::discover_async(
-        IssuerUrl::new(config.oidc_issuer_url.clone())?,
+        IssuerUrl::new(issuer.to_string())?,
         async_http_client,
     )
     .await?;
 
     Ok(CoreClient::from_provider_metadata(
         provider_metadata,
-        ClientId::new(config.oidc_client_id.clone()),
-        Some(ClientSecret::new(config.oidc_client_secret.clone())),
+        ClientId::new(client_id.to_string()),
+        Some(ClientSecret::new(client_secret.to_string())),
     )
-    .set_redirect_uri(RedirectUrl::new(config.oidc_redirect_url.clone())?))
+    .set_redirect_uri(RedirectUrl::new(redirect_url.to_string())?))
 }
 
 pub async fn login(State(state): State<AppState>, session: Session) -> impl IntoResponse {
