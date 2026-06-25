@@ -96,7 +96,7 @@ Chrome Extension
 - Auth: `X-API-Key` header validated against stored key hash.
 - Body: `{"url": "<string>"}`.
 - Calls `POST http://metube:8081/add` internally with `{"url": "...", "folder": "/downloads"}`.
-- Records submission in SQLite: `id`, `url`, `submitted_at`, `status` (`pending` | `downloaded` | `imported` | `error`).
+- Records submission in SQLite: `id`, `url`, `submitted_at`, `status` (`pending` | `imported` | `error`).
 - Returns `200 {"status": "queued"}` or `4xx`/`5xx` on failure.
 
 **`GET /dashboard`**
@@ -192,7 +192,7 @@ volumes:
 
 **Chrome Extension → Server:** `X-API-Key` header. Key is generated in `/settings`, stored hashed (bcrypt) in SQLite. The extension stores the plaintext key in `chrome.storage.sync`.
 
-**Dashboard / Settings:** OIDC (e.g. Authentik, Authelia, or any compliant provider). Caddy or the Rust server handles the OIDC redirect flow. Only `/dashboard` and `/settings` routes require OIDC — `/api/submit` uses only the API key.
+**Dashboard / Settings:** OIDC (e.g. Authentik, Authelia, or any compliant provider). The Rust server handles the OIDC redirect flow using the `openidconnect` crate — all auth logic stays in one place. Only `/dashboard` and `/settings` routes require OIDC — `/api/submit` uses only the API key.
 
 ---
 
