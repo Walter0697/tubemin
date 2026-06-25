@@ -2,6 +2,8 @@ mod config;
 mod db;
 mod api_keys;
 mod metube;
+mod state;
+mod handlers;
 
 #[tokio::main]
 async fn main() {
