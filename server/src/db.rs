@@ -1,4 +1,5 @@
-use sqlx::SqlitePool;
+use sqlx::{SqlitePool, sqlite::SqliteConnectOptions};
+use std::str::FromStr;
 use chrono::Utc;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -12,7 +13,8 @@ pub struct Submission {
 }
 
 pub async fn init(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
-    let pool = SqlitePool::connect(database_url).await?;
+    let opts = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
+    let pool = SqlitePool::connect_with(opts).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
 }

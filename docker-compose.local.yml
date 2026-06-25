@@ -1,0 +1,14 @@
+# Local testing override — no Caddy, Tubemin exposed directly on port 3000
+# Usage: docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+services:
+  caddy:
+    profiles: ["disabled"]
+
+  tubemin:
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./local-data:/data
+
+  metube:
+    image: alexta69/metube:latest
