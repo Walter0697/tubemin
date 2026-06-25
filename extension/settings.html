@@ -35,7 +35,11 @@
     #save-btn { background: #2563eb; color: white; width: 100%; padding: 10px; }
     #save-btn:hover { background: #1d4ed8; }
     #change-btn { background: #f0f0f0; color: #333; }
-    #status { font-size: 0.875rem; margin-top: 8px; color: #2a2; min-height: 1.2em; }
+    #test-btn { background: #f0f0f0; color: #333; width: 100%; margin-top: 8px; }
+    #test-btn:hover { background: #e0e0e0; }
+    #status { font-size: 0.875rem; margin-top: 8px; min-height: 1.2em; }
+    .ok { color: #2a2; }
+    .err { color: #c00; }
   </style>
 </head>
 <body>
@@ -56,6 +60,7 @@
   </div>
 
   <button id="save-btn" type="button">Save</button>
+  <button id="test-btn" type="button">Test Connection</button>
   <div id="status"></div>
 
   <script src="settings.js"></script>

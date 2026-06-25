@@ -7,6 +7,7 @@ const keyInputDiv = document.getElementById('key-input');
 const keyMasked = document.getElementById('key-masked');
 const changeBtn = document.getElementById('change-btn');
 const saveBtn = document.getElementById('save-btn');
+const testBtn = document.getElementById('test-btn');
 const status = document.getElementById('status');
 
 function maskKey(key) {
@@ -36,6 +37,42 @@ chrome.storage.sync.get(['serverUrl', 'apiKey'], (data) => {
 });
 
 changeBtn.addEventListener('click', showInput);
+
+testBtn.addEventListener('click', async () => {
+  const url = serverUrlInput.value.trim().replace(/\/$/, '');
+  const key = apiKeyInput.style.display !== 'none' && apiKeyInput.value.trim()
+    ? apiKeyInput.value.trim()
+    : await new Promise((resolve) => chrome.storage.sync.get(['apiKey'], (d) => resolve(d.apiKey || '')));
+
+  if (!url || !key) {
+    status.className = 'err';
+    status.textContent = 'Enter a server URL and API key first.';
+    return;
+  }
+
+  testBtn.disabled = true;
+  status.className = '';
+  status.textContent = 'Testing…';
+
+  try {
+    const resp = await fetch(`${url}/api/validate`, { headers: { 'X-API-Key': key } });
+    if (resp.ok) {
+      status.className = 'ok';
+      status.textContent = 'Connected successfully.';
+    } else if (resp.status === 401) {
+      status.className = 'err';
+      status.textContent = 'Invalid API key.';
+    } else {
+      status.className = 'err';
+      status.textContent = `Server error (${resp.status}).`;
+    }
+  } catch {
+    status.className = 'err';
+    status.textContent = 'Cannot reach server.';
+  } finally {
+    testBtn.disabled = false;
+  }
+});
 
 saveBtn.addEventListener('click', () => {
   const serverUrl = serverUrlInput.value.trim().replace(/\/$/, '');
