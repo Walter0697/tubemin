@@ -41,10 +41,15 @@ pub fn start(
 }
 
 pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
-    match path.extension().and_then(|e| e.to_str()) {
-        Some(ext) => matches!(ext, "part" | "ytdl" | "tmp"),
-        None => false,
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    if matches!(ext, "part" | "ytdl" | "tmp") {
+        return true;
     }
+    // MeTube names in-progress files as video.temp.webm — stem ends with ".temp"
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.ends_with(".temp"))
+        .unwrap_or(false)
 }
 
 pub(crate) async fn handle_new_file(
@@ -82,8 +87,11 @@ mod tests {
     fn temp_file_detection() {
         assert!(is_temp_file(std::path::Path::new("/downloads/video.part")));
         assert!(is_temp_file(std::path::Path::new("/downloads/video.ytdl")));
+        assert!(is_temp_file(std::path::Path::new("/downloads/video.temp.webm")));
+        assert!(is_temp_file(std::path::Path::new("/downloads/video.temp.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mkv")));
+        assert!(!is_temp_file(std::path::Path::new("/downloads/video.webm")));
     }
 
     #[tokio::test]
