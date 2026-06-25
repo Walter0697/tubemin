@@ -35,11 +35,14 @@ pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str) -> Result
 
 pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
+    // yt-dlp filenames can't be mapped back to the submitted URL, so we match
+    // the oldest pending submission — correct for a single-user sequential queue.
     sqlx::query(
-        "UPDATE submissions SET status = 'imported', updated_at = ? WHERE filename = ?"
+        "UPDATE submissions SET status = 'imported', filename = ?, updated_at = ?
+         WHERE id = (SELECT id FROM submissions WHERE status = 'pending' ORDER BY submitted_at ASC LIMIT 1)"
     )
-    .bind(&now)
     .bind(filename)
+    .bind(&now)
     .execute(pool)
     .await?;
     Ok(())
@@ -48,10 +51,11 @@ pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx
 pub async fn mark_error(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'error', updated_at = ? WHERE filename = ?"
+        "UPDATE submissions SET status = 'error', filename = ?, updated_at = ?
+         WHERE id = (SELECT id FROM submissions WHERE status = 'pending' ORDER BY submitted_at ASC LIMIT 1)"
     )
-    .bind(&now)
     .bind(filename)
+    .bind(&now)
     .execute(pool)
     .await?;
     Ok(())
@@ -86,13 +90,9 @@ mod tests {
     async fn mark_imported_updates_status() {
         let pool = test_pool().await;
         create_submission(&pool, "test-id-2", "https://example.com/video2").await.unwrap();
-        // set filename first
-        sqlx::query("UPDATE submissions SET filename = 'video.mp4' WHERE id = 'test-id-2'")
-            .execute(&pool)
-            .await
-            .unwrap();
         mark_imported(&pool, "video.mp4").await.unwrap();
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows[0].status, "imported");
+        assert_eq!(rows[0].filename.as_deref(), Some("video.mp4"));
     }
 }
