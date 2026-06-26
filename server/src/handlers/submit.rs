@@ -41,6 +41,10 @@ pub async fn submit(
 
     let _ = api_keys::update_last_used(&state.pool, &key_id).await;
 
+    if !crate::url_validator::is_supported_url(&body.url) {
+        return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"error": "URL not supported — must be from a site yt-dlp can download"}))).into_response();
+    }
+
     if let Err(e) = metube::submit(&state.config.metube_url, &body.url).await {
         error!(error = %e, "failed to submit URL to metube");
         return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "metube unavailable"}))).into_response();
@@ -112,7 +116,7 @@ mod tests {
         let resp = server
             .post("/api/submit")
             .add_header("X-API-Key", &api_key)
-            .json(&json!({"url": "https://example.com/video"}))
+            .json(&json!({"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}))
             .await;
         resp.assert_status_ok();
         let body: serde_json::Value = resp.json();

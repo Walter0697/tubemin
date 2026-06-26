@@ -77,6 +77,10 @@ sendBtn.addEventListener('click', async () => {
     } else if (resp.status === 401) {
       statusEl.className = 'error';
       statusEl.textContent = 'Invalid API key. Check Settings.';
+    } else if (resp.status === 422) {
+      const data = await resp.json().catch(() => ({}));
+      statusEl.className = 'error';
+      statusEl.textContent = data.error || 'URL not supported by yt-dlp.';
     } else {
       statusEl.className = 'error';
       statusEl.textContent = `Error ${resp.status}. Check server logs.`;

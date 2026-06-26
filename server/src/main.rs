@@ -7,6 +7,7 @@ mod oidc;
 mod password_auth;
 mod peertube;
 mod state;
+mod url_validator;
 mod video_meta;
 mod watcher;
 
