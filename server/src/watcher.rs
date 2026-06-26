@@ -83,20 +83,44 @@ pub fn start(
         }
 
         while let Some(path) = rx.recv().await {
-            if !path.is_file() || is_temp_file(&path) || seen.contains(&path) {
+            if !path.is_file() || is_temp_file(&path) || is_image_file(&path) || seen.contains(&path) {
                 continue;
             }
             seen.insert(path.clone());
+
+            // Read thumbnail bytes before the video is moved out of /downloads
+            let thumbnail = crate::video_meta::find_thumbnail_path(&path).and_then(|tp| {
+                let mime = if tp.extension().map_or(false, |e| e == "webp") { "image/webp" } else { "image/jpeg" };
+                std::fs::read(&tp).ok().map(|bytes| {
+                    let _ = std::fs::remove_file(&tp);
+                    (bytes, mime.to_string())
+                })
+            });
+
             let meta = crate::video_meta::load_for(&path);
             let dest = handle_new_file(path, &import_dir, &pool).await;
             if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
-                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta).await {
-                    Ok(_) => info!("Uploaded {} to PeerTube", dest.display()),
+                let thumb_arg = thumbnail.as_ref().map(|(b, m)| (b.clone(), m.as_str()));
+                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta, thumb_arg).await {
+                    Ok(preview_path) => {
+                        info!("Uploaded {} to PeerTube", dest.display());
+                        let filename = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        if let Err(e) = crate::db::set_peertube_thumb(&pool, filename, &preview_path).await {
+                            error!("db error storing peertube thumb for {}: {}", filename, e);
+                        }
+                    }
                     Err(e) => error!("PeerTube upload failed for {}: {}", dest.display(), e),
                 }
             }
         }
     })
+}
+
+pub(crate) fn is_image_file(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("jpg") | Some("jpeg") | Some("webp") | Some("png")
+    )
 }
 
 pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {

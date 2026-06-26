@@ -130,6 +130,16 @@ struct ChannelList {
     data: Vec<VideoChannel>,
 }
 
+#[derive(Deserialize)]
+struct UploadResponse {
+    video: UploadedVideo,
+}
+
+#[derive(Deserialize)]
+struct UploadedVideo {
+    uuid: String,
+}
+
 fn mime_for(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("mp4") => "video/mp4",
@@ -153,7 +163,8 @@ fn derive_host(url: &str) -> String {
     url.to_string()
 }
 
-pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path, meta: &crate::video_meta::VideoMeta) -> Result<()> {
+/// Upload a video to PeerTube. Returns the `/lazy-static/previews/{uuid}.jpg` path on success.
+pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path, meta: &crate::video_meta::VideoMeta, thumbnail: Option<(Vec<u8>, &str)>) -> Result<String> {
     // PeerTube validates Host against PEERTUBE_WEBSERVER_HOSTNAME (its public hostname).
     // When Tubemin connects via Docker-internal URL (peertube:9000) we must send the
     // public hostname (localhost:9000) in the Host header. PEERTUBE_HOST provides this.
@@ -240,7 +251,17 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         form = form.text("originallyPublishedAt", iso);
     }
 
-    let form = form.part("videofile", video_part);
+    let mut form = form.part("videofile", video_part);
+
+    if let Some((thumb_bytes, thumb_mime)) = thumbnail {
+        let thumb1 = reqwest::multipart::Part::bytes(thumb_bytes.clone())
+            .file_name("thumbnail.jpg")
+            .mime_str(thumb_mime)?;
+        let thumb2 = reqwest::multipart::Part::bytes(thumb_bytes)
+            .file_name("preview.jpg")
+            .mime_str(thumb_mime)?;
+        form = form.part("thumbnailfile", thumb1).part("previewfile", thumb2);
+    }
 
     let resp = client
         .post(format!("{}/api/v1/videos/upload", url))
@@ -255,5 +276,8 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         return Err(anyhow!("PeerTube upload failed ({}): {}", status, body));
     }
 
-    Ok(())
+    let body = resp.text().await?;
+    let upload: UploadResponse = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("upload response parse error ({e}): {body}"))?;
+    Ok(format!("/lazy-static/previews/{}.jpg", upload.video.uuid))
 }

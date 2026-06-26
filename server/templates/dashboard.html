@@ -18,7 +18,8 @@
       {% for s in submissions %}
       <a class="card{% if s.status == 'pending' or s.status == 'downloading' %} processing{% endif %}"
          href="{{ s.url }}" target="_blank"
-         data-url="{{ s.url }}" data-ts="{{ s.submitted_at }}">
+         data-url="{{ s.url }}" data-ts="{{ s.submitted_at }}"
+         {% if s.peertube_thumb %}data-thumb="{{ s.peertube_thumb }}"{% endif %}>
         <div class="card-thumb"></div>
         <div class="card-body">
           <div class="card-site"></div>
@@ -39,6 +40,8 @@
   </div>
   <script src="/static/app.js"></script>
   <script>
+    const PEERTUBE_BASE = "{{ peertube_base }}";
+
     function ytId(url) {
       try {
         const u = new URL(url);
@@ -82,15 +85,22 @@
       site.textContent = siteHost(url);
       if (timeEl) timeEl.textContent = relTime(card.dataset.ts);
 
-      const id = ytId(url);
-      if (id) {
-        const img = document.createElement('img');
-        img.alt = '';
-        img.onerror = () => { img.remove(); setPlaceholder(thumb, url); };
-        img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
+      const peertubePath = card.dataset.thumb;
+      const img = document.createElement('img');
+      img.alt = '';
+      img.onerror = () => { img.remove(); setPlaceholder(thumb, url); };
+
+      if (peertubePath && PEERTUBE_BASE) {
+        img.src = PEERTUBE_BASE + peertubePath;
         thumb.appendChild(img);
       } else {
-        setPlaceholder(thumb, url);
+        const id = ytId(url);
+        if (id) {
+          img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
+          thumb.appendChild(img);
+        } else {
+          setPlaceholder(thumb, url);
+        }
       }
 
       if (card.classList.contains('processing')) hasProcessing = true;

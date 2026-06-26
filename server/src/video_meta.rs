@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Deserialize, Default)]
 pub struct VideoMeta {
@@ -7,6 +7,16 @@ pub struct VideoMeta {
     pub description: Option<String>,
     pub uploader: Option<String>,
     pub upload_date: Option<String>, // yt-dlp format: YYYYMMDD
+}
+
+pub fn find_thumbnail_path(video_path: &Path) -> Option<PathBuf> {
+    for ext in &["jpg", "jpeg", "webp", "png"] {
+        let p = video_path.with_extension(ext);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
 }
 
 pub fn load_for(video_path: &Path) -> VideoMeta {

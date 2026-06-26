@@ -8,6 +8,7 @@ pub struct Submission {
     pub url: String,
     pub title: Option<String>,
     pub filename: Option<String>,
+    pub peertube_thumb: Option<String>,
     pub status: String,
     pub submitted_at: String,
     pub updated_at: String,
@@ -31,6 +32,17 @@ pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str) -> Result
     .bind(&now)
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+pub async fn set_peertube_thumb(pool: &SqlitePool, filename: &str, thumb_path: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query("UPDATE submissions SET peertube_thumb = ?, updated_at = ? WHERE filename = ?")
+        .bind(thumb_path)
+        .bind(&now)
+        .bind(filename)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 
