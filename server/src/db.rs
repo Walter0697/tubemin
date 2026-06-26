@@ -33,6 +33,18 @@ pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str) -> Result
     Ok(())
 }
 
+pub async fn mark_pending_as_error_by_url(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions SET status = 'error', updated_at = ? WHERE url = ? AND status = 'pending'"
+    )
+    .bind(&now)
+    .bind(url)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn mark_downloading(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(

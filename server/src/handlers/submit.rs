@@ -45,12 +45,8 @@ pub async fn submit(
         return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"error": "URL not supported — must be from a site yt-dlp can download"}))).into_response();
     }
 
-    if let Err(e) = metube::submit(&state.config.metube_url, &body.url).await {
-        error!(error = %e, "failed to submit URL to metube");
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "metube unavailable"}))).into_response();
-    }
-
-    // If a previous attempt errored, reset it to pending rather than inserting a duplicate.
+    // Write the DB row before submitting to MeTube so the watcher always finds
+    // a matching row, even when a fast download completes before this handler returns.
     let reused = db::reset_submission_to_pending(&state.pool, &body.url).await.unwrap_or(false);
     if !reused {
         let id = Uuid::new_v4().to_string();
@@ -58,6 +54,12 @@ pub async fn submit(
             error!(error = %e, "db error creating submission record");
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
         }
+    }
+
+    if let Err(e) = metube::submit(&state.config.metube_url, &body.url).await {
+        error!(error = %e, "failed to submit URL to metube");
+        let _ = db::mark_pending_as_error_by_url(&state.pool, &body.url).await;
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "metube unavailable"}))).into_response();
     }
 
     (StatusCode::OK, Json(SubmitResponse { status: "queued".into() })).into_response()
