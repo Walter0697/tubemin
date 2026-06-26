@@ -14,29 +14,88 @@
   </nav>
   <div class="page">
     <h1 class="page-title">Dashboard</h1>
-    <p class="section-title">Recent Submissions</p>
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>URL</th>
-          <th>Status</th>
-          <th>Submitted</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for s in submissions %}
-        <tr>
-          <td><a href="{{ s.url }}" target="_blank">{{ s.url }}</a></td>
-          <td><span class="status-dot status-{{ s.status }}"></span>{{ s.status }}</td>
-          <td>{{ s.submitted_at }}</td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="3" class="empty-cell">No submissions yet.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="card-grid">
+      {% for s in submissions %}
+      <a class="card{% if s.status == 'pending' or s.status == 'downloading' %} processing{% endif %}"
+         href="{{ s.url }}" target="_blank"
+         data-url="{{ s.url }}" data-ts="{{ s.submitted_at }}">
+        <div class="card-thumb"></div>
+        <div class="card-body">
+          <div class="card-site"></div>
+          <div class="card-url">{{ s.url }}</div>
+          <div class="card-footer">
+            <span class="card-status">
+              <span class="status-dot status-{{ s.status }}"></span>{{ s.status }}
+            </span>
+            <span class="card-time">{{ s.submitted_at }}</span>
+          </div>
+        </div>
+      </a>
+      {% else %}
+      <p style="grid-column:1/-1; color:var(--text-dim); margin:0; padding:20px 0;">No submissions yet.</p>
+      {% endfor %}
+    </div>
   </div>
+  <script src="/static/app.js"></script>
+  <script>
+    function ytId(url) {
+      try {
+        const u = new URL(url);
+        if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('?')[0];
+        if (u.hostname.includes('youtube.com') || u.hostname.includes('music.youtube.com')) {
+          return u.searchParams.get('v') ||
+            (u.pathname.includes('/shorts/') ? u.pathname.split('/').pop() : null);
+        }
+      } catch {}
+      return null;
+    }
+
+    function siteHost(url) {
+      try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; }
+    }
+
+    function relTime(ts) {
+      const s = (Date.now() - new Date(ts)) / 1000;
+      if (s < 60)    return 'just now';
+      if (s < 3600)  return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
+    }
+
+    function setPlaceholder(el, url) {
+      el.innerHTML =
+        '<div class="card-thumb-placeholder">' +
+        '<span class="ph-icon">▶</span>' +
+        '<span class="ph-site">' + siteHost(url) + '</span>' +
+        '</div>';
+    }
+
+    let hasProcessing = false;
+
+    document.querySelectorAll('a.card').forEach(card => {
+      const url = card.dataset.url;
+      const thumb = card.querySelector('.card-thumb');
+      const site = card.querySelector('.card-site');
+      const timeEl = card.querySelector('.card-time');
+
+      site.textContent = siteHost(url);
+      if (timeEl) timeEl.textContent = relTime(card.dataset.ts);
+
+      const id = ytId(url);
+      if (id) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.onerror = () => { img.remove(); setPlaceholder(thumb, url); };
+        img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
+        thumb.appendChild(img);
+      } else {
+        setPlaceholder(thumb, url);
+      }
+
+      if (card.classList.contains('processing')) hasProcessing = true;
+    });
+
+    if (hasProcessing) setTimeout(() => location.reload(), 5000);
+  </script>
 </body>
 </html>
