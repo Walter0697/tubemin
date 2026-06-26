@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let pt_config = match (&config.peertube_url, &config.peertube_username, &config.peertube_password) {
         (Some(url), Some(user), Some(pass)) => Some(watcher::PeerTubeConfig {
             url: url.clone(),
+            host: config.peertube_host.clone(),
             username: user.clone(),
             password: pass.clone(),
         }),

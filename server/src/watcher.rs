@@ -2,13 +2,13 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use sqlx::SqlitePool;
+use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tracing::{error, info};
 
-const POLL_INTERVAL_SECS: u64 = 5;
-
 pub struct PeerTubeConfig {
     pub url: String,
+    pub host: Option<String>,
     pub username: String,
     pub password: String,
 }
@@ -22,28 +22,76 @@ pub fn start(
     let peertube = Arc::new(peertube);
     tokio::spawn(async move {
         let mut seen: HashSet<PathBuf> = HashSet::new();
-        let mut ticker = interval(Duration::from_secs(POLL_INTERVAL_SECS));
 
-        loop {
-            ticker.tick().await;
+        // Channel for inotify events → async task
+        let (tx, mut rx) = mpsc::unbounded_channel::<PathBuf>();
 
-            let entries = match std::fs::read_dir(&downloads_dir) {
-                Ok(e) => e,
-                Err(e) => { error!("Failed to read downloads dir: {}", e); continue; }
+        // Spawn blocking thread running the notify watcher
+        let watch_dir = downloads_dir.clone();
+        let tx2 = tx.clone();
+        std::thread::spawn(move || {
+            use notify::{Watcher, RecursiveMode, recommended_watcher, Event, EventKind};
+            use notify::event::CreateKind;
+
+            let tx3 = tx2.clone();
+            let mut watcher = match recommended_watcher(move |res: notify::Result<Event>| {
+                if let Ok(event) = res {
+                    if matches!(event.kind, EventKind::Create(CreateKind::File) | EventKind::Modify(_)) {
+                        for path in event.paths {
+                            let _ = tx3.send(path);
+                        }
+                    }
+                }
+            }) {
+                Ok(w) => w,
+                Err(e) => {
+                    error!("Failed to create file watcher: {e}. Falling back to poll only.");
+                    return;
+                }
             };
 
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if !path.is_file() || is_temp_file(&path) || seen.contains(&path) {
-                    continue;
-                }
-                seen.insert(path.clone());
-                let dest = handle_new_file(path, &import_dir, &pool).await;
-                if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
-                    match crate::peertube::upload(&pt.url, &pt.username, &pt.password, &dest).await {
-                        Ok(_) => info!("Uploaded {} to PeerTube", dest.display()),
-                        Err(e) => error!("PeerTube upload failed for {}: {}", dest.display(), e),
+            if let Err(e) = watcher.watch(&watch_dir, RecursiveMode::NonRecursive) {
+                error!("Failed to watch {}: {e}. Falling back to poll only.", watch_dir.display());
+                return;
+            }
+
+            info!("Watching {} for new files", watch_dir.display());
+            // Keep thread alive (watcher drops when thread exits)
+            loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+        });
+
+        // Fallback: also scan every 30s to catch anything inotify missed
+        let scan_tx = tx.clone();
+        let scan_dir = downloads_dir.clone();
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(30));
+            loop {
+                ticker.tick().await;
+                if let Ok(entries) = std::fs::read_dir(&scan_dir) {
+                    for entry in entries.flatten() {
+                        let _ = scan_tx.send(entry.path());
                     }
+                }
+            }
+        });
+
+        // Also do an initial scan on startup
+        if let Ok(entries) = std::fs::read_dir(&downloads_dir) {
+            for entry in entries.flatten() {
+                let _ = tx.send(entry.path());
+            }
+        }
+
+        while let Some(path) = rx.recv().await {
+            if !path.is_file() || is_temp_file(&path) || seen.contains(&path) {
+                continue;
+            }
+            seen.insert(path.clone());
+            let dest = handle_new_file(path, &import_dir, &pool).await;
+            if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
+                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest).await {
+                    Ok(_) => info!("Uploaded {} to PeerTube", dest.display()),
+                    Err(e) => error!("PeerTube upload failed for {}: {}", dest.display(), e),
                 }
             }
         }

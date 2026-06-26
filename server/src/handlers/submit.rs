@@ -88,6 +88,7 @@ mod tests {
             oidc_client_secret: None,
             oidc_redirect_url: None,
             peertube_url: None,
+            peertube_host: None,
             peertube_username: None,
             peertube_password: None,
         });

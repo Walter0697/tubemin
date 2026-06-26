@@ -36,18 +36,41 @@ fn mime_for(path: &Path) -> &'static str {
     }
 }
 
-pub async fn upload(url: &str, username: &str, password: &str, file_path: &Path) -> Result<()> {
+fn derive_host(url: &str) -> String {
+    if let Ok(parsed) = url.parse::<reqwest::Url>() {
+        if let Some(host) = parsed.host_str() {
+            return match parsed.port() {
+                Some(p) => format!("{}:{}", host, p),
+                None => host.to_string(),
+            };
+        }
+    }
+    url.to_string()
+}
+
+pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path) -> Result<()> {
+    // PeerTube validates Host against PEERTUBE_WEBSERVER_HOSTNAME (its public hostname).
+    // When Tubemin connects via Docker-internal URL (peertube:9000) we must send the
+    // public hostname (localhost:9000) in the Host header. PEERTUBE_HOST provides this.
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
+
     let client = Client::new();
 
     // 1. Get OAuth client credentials
-    let oauth: OAuthClient = client
+    let resp = client
         .get(format!("{}/api/v1/oauth-clients/local", url))
-        .send().await?
-        .json().await?;
+        .header("Host", &host)
+        .send().await?;
+    let body = resp.text().await?;
+    let oauth: OAuthClient = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
 
     // 2. Exchange credentials for access token
-    let token: TokenResponse = client
+    let resp = client
         .post(format!("{}/api/v1/users/token", url))
+        .header("Host", &host)
         .form(&[
             ("client_id",     oauth.client_id.as_str()),
             ("client_secret", oauth.client_secret.as_str()),
@@ -56,15 +79,20 @@ pub async fn upload(url: &str, username: &str, password: &str, file_path: &Path)
             ("username",      username),
             ("password",      password),
         ])
-        .send().await?
-        .json().await?;
+        .send().await?;
+    let body = resp.text().await?;
+    let token: TokenResponse = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
 
     // 3. Find the user's default channel
-    let channels: ChannelList = client
+    let resp = client
         .get(format!("{}/api/v1/accounts/{}/video-channels", url, username))
+        .header("Host", &host)
         .bearer_auth(&token.access_token)
-        .send().await?
-        .json().await?;
+        .send().await?;
+    let body = resp.text().await?;
+    let channels: ChannelList = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("video-channels parse error ({e}): {body}"))?;
 
     let channel_id = channels.data.first()
         .ok_or_else(|| anyhow!("No video channel found for PeerTube user '{}'", username))?
@@ -99,6 +127,7 @@ pub async fn upload(url: &str, username: &str, password: &str, file_path: &Path)
 
     let resp = client
         .post(format!("{}/api/v1/videos/upload", url))
+        .header("Host", &host)
         .bearer_auth(&token.access_token)
         .multipart(form)
         .send().await?;

@@ -20,6 +20,7 @@ pub struct Config {
     pub oidc_client_secret: Option<String>,
     pub oidc_redirect_url: Option<String>,
     pub peertube_url: Option<String>,
+    pub peertube_host: Option<String>,
     pub peertube_username: Option<String>,
     pub peertube_password: Option<String>,
 }
@@ -83,6 +84,7 @@ impl Config {
             oidc_client_secret,
             oidc_redirect_url,
             peertube_url: std::env::var("PEERTUBE_URL").ok(),
+            peertube_host: std::env::var("PEERTUBE_HOST").ok(),
             peertube_username: std::env::var("PEERTUBE_USERNAME").ok(),
             peertube_password: std::env::var("PEERTUBE_PASSWORD").ok(),
         })
