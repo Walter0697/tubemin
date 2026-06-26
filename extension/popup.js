@@ -18,7 +18,7 @@ async function validateConnection() {
       headers: { 'X-API-Key': apiKey },
     });
     if (resp.ok) {
-      hint.textContent = '';
+      // connection good — URL check result (if any) stays visible
     } else if (resp.status === 401) {
       sendBtn.disabled = true;
       hint.textContent = 'Invalid API key — check Settings.';
@@ -27,6 +27,21 @@ async function validateConnection() {
     }
   } catch {
     hint.textContent = 'Cannot reach server — check Settings.';
+  }
+}
+
+async function checkUrlSupported() {
+  if (!serverUrl || !currentUrl) return;
+  try {
+    const resp = await fetch(
+      `${serverUrl}/api/check-url?url=${encodeURIComponent(currentUrl)}`
+    );
+    if (!resp.ok) {
+      sendBtn.disabled = true;
+      hint.textContent = 'This site isn\'t supported by yt-dlp.';
+    }
+  } catch {
+    // server unreachable — validateConnection will surface that
   }
 }
 
@@ -47,8 +62,9 @@ Promise.all([
   }),
 ]).then(() => {
   if (serverUrl && apiKey) {
-    sendBtn.disabled = false;  // enable immediately; validation runs in background
+    sendBtn.disabled = false;  // enable immediately; checks run in background
     validateConnection();
+    checkUrlSupported();
   } else {
     hint.textContent = 'Configure your server in Settings.';
   }

@@ -101,6 +101,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/", get(|| async { axum::response::Redirect::to("/auth/login") }))
         .route("/api/submit", post(handlers::submit))
         .route("/api/validate", get(handlers::validate))
+        .route("/api/check-url", get(handlers::check_url))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
         .route("/settings", get(handlers::settings))
