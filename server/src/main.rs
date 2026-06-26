@@ -6,6 +6,7 @@ mod metube;
 mod oidc;
 mod password_auth;
 mod peertube;
+mod poller;
 mod state;
 mod url_validator;
 mod video_meta;
@@ -55,6 +56,9 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     }
+
+    // Poll MeTube queue to transition pending → downloading
+    poller::start(config.metube_url.clone(), pool.clone());
 
     // Start file watcher
     let pt_config = match (&config.peertube_url, &config.peertube_username, &config.peertube_password) {

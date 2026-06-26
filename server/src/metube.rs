@@ -10,6 +10,30 @@ pub enum MeTubeError {
     BadStatus(u16),
 }
 
+pub async fn get_queue_urls(metube_url: &str) -> Result<Vec<String>, MeTubeError> {
+    let client = Client::new();
+    let resp = client
+        .get(format!("{}/history", metube_url))
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        return Err(MeTubeError::BadStatus(resp.status().as_u16()));
+    }
+
+    let data: serde_json::Value = resp.json().await?;
+    let urls = data["queue"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| item["url"].as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    Ok(urls)
+}
+
 pub async fn submit(metube_url: &str, url: &str) -> Result<(), MeTubeError> {
     let client = Client::new();
     let resp = client

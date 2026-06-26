@@ -33,13 +33,25 @@ pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str) -> Result
     Ok(())
 }
 
+pub async fn mark_downloading(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions SET status = 'downloading', updated_at = ? WHERE url = ? AND status = 'pending'"
+    )
+    .bind(&now)
+    .bind(url)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     // yt-dlp filenames can't be mapped back to the submitted URL, so we match
-    // the oldest pending submission — correct for a single-user sequential queue.
+    // the oldest in-progress submission — correct for a single-user sequential queue.
     sqlx::query(
         "UPDATE submissions SET status = 'imported', filename = ?, updated_at = ?
-         WHERE id = (SELECT id FROM submissions WHERE status = 'pending' ORDER BY submitted_at ASC LIMIT 1)"
+         WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') ORDER BY submitted_at ASC LIMIT 1)"
     )
     .bind(filename)
     .bind(&now)
@@ -52,7 +64,7 @@ pub async fn mark_error(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::E
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         "UPDATE submissions SET status = 'error', filename = ?, updated_at = ?
-         WHERE id = (SELECT id FROM submissions WHERE status = 'pending' ORDER BY submitted_at ASC LIMIT 1)"
+         WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') ORDER BY submitted_at ASC LIMIT 1)"
     )
     .bind(filename)
     .bind(&now)
