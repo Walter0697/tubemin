@@ -10,7 +10,36 @@ pub enum MeTubeError {
     BadStatus(u16),
 }
 
-pub async fn get_queue_urls(metube_url: &str) -> Result<Vec<String>, MeTubeError> {
+pub struct QueueItem {
+    pub url: String,
+    pub title: Option<String>,
+}
+
+pub struct QueueState {
+    /// URLs MeTube is actively downloading
+    pub active: Vec<QueueItem>,
+    /// URLs waiting to start in MeTube's queue
+    pub pending: Vec<QueueItem>,
+    /// URLs MeTube finished with an error
+    pub errored: Vec<QueueItem>,
+}
+
+fn extract_items(arr: Option<&serde_json::Value>, error_filter: bool) -> Vec<QueueItem> {
+    arr.and_then(|v| v.as_array())
+        .map(|items| {
+            items.iter().filter_map(|item| {
+                if error_filter && item["error"].is_null() {
+                    return None;
+                }
+                let url = item["url"].as_str()?.to_string();
+                let title = item["title"].as_str().map(str::to_string);
+                Some(QueueItem { url, title })
+            }).collect()
+        })
+        .unwrap_or_default()
+}
+
+pub async fn get_queue_state(metube_url: &str) -> Result<QueueState, MeTubeError> {
     let client = Client::new();
     let resp = client
         .get(format!("{}/history", metube_url))
@@ -22,16 +51,11 @@ pub async fn get_queue_urls(metube_url: &str) -> Result<Vec<String>, MeTubeError
     }
 
     let data: serde_json::Value = resp.json().await?;
-    let urls = data["queue"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|item| item["url"].as_str().map(str::to_string))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    Ok(urls)
+    Ok(QueueState {
+        active:  extract_items(data.get("queue"),   false),
+        pending: extract_items(data.get("pending"), false),
+        errored: extract_items(data.get("done"),    true),
+    })
 }
 
 pub async fn submit(metube_url: &str, url: &str) -> Result<(), MeTubeError> {

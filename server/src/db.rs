@@ -6,6 +6,7 @@ use chrono::Utc;
 pub struct Submission {
     pub id: String,
     pub url: String,
+    pub title: Option<String>,
     pub filename: Option<String>,
     pub status: String,
     pub submitted_at: String,
@@ -28,6 +29,29 @@ pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str) -> Result
     .bind(url)
     .bind(&now)
     .bind(&now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn update_submission_title(pool: &SqlitePool, url: &str, title: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query("UPDATE submissions SET title = ?, updated_at = ? WHERE url = ?")
+        .bind(title)
+        .bind(&now)
+        .bind(url)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn mark_active_as_error_by_url(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions SET status = 'error', updated_at = ? WHERE url = ? AND status IN ('pending', 'downloading')"
+    )
+    .bind(&now)
+    .bind(url)
     .execute(pool)
     .await?;
     Ok(())

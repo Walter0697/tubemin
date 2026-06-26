@@ -319,6 +319,16 @@ a.card.processing .card-thumb::after {
   color: var(--text-dim);
   margin-bottom: 3px;
 }
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 2px;
+  min-height: 1em;
+}
 .card-url {
   font-size: 11px;
   color: var(--text-muted);

@@ -16,6 +16,7 @@ pub async fn dashboard(
     let ctx = minijinja::context! {
         submissions => submissions.iter().map(|s| minijinja::context! {
             url => s.url,
+            title => s.title,
             status => s.status,
             submitted_at => s.submitted_at,
         }).collect::<Vec<_>>(),
