@@ -1,6 +1,7 @@
 // extension/popup.js
 
 const sendBtn = document.getElementById('send-btn');
+const urlSite = document.getElementById('url-site');
 const urlPreview = document.getElementById('url-preview');
 const hint = document.getElementById('hint');
 const statusEl = document.getElementById('status');
@@ -12,21 +13,26 @@ let apiKey = '';
 
 settingsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
 
+function setHint(text, warn = false) {
+  hint.textContent = text;
+  hint.className = warn ? 'warn' : '';
+}
+
 async function validateConnection() {
   try {
     const resp = await fetch(`${serverUrl}/api/validate`, {
       headers: { 'X-API-Key': apiKey },
     });
     if (resp.ok) {
-      // connection good — URL check result (if any) stays visible
+      setHint('');
     } else if (resp.status === 401) {
       sendBtn.disabled = true;
-      hint.textContent = 'Invalid API key — check Settings.';
+      setHint('Invalid API key — check Settings.');
     } else {
-      hint.textContent = `Server error (${resp.status}).`;
+      setHint(`Server error (${resp.status}).`);
     }
   } catch {
-    hint.textContent = 'Cannot reach server — check Settings.';
+    setHint('Cannot reach server — check Settings.');
   }
 }
 
@@ -38,7 +44,7 @@ async function checkUrlSupported() {
     );
     if (!resp.ok) {
       sendBtn.disabled = true;
-      hint.textContent = 'This site isn\'t supported by yt-dlp.';
+      setHint("This site isn't supported by yt-dlp.", true);
     }
   } catch {
     // server unreachable — validateConnection will surface that
@@ -57,6 +63,11 @@ Promise.all([
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       currentUrl = tabs[0]?.url || '';
       urlPreview.textContent = currentUrl || 'No URL detected';
+      try {
+        urlSite.textContent = new URL(currentUrl).hostname.replace(/^www\./, '');
+      } catch {
+        urlSite.textContent = '';
+      }
       resolve();
     });
   }),
@@ -66,10 +77,10 @@ Promise.all([
     validateConnection();
     checkUrlSupported();
   } else {
-    hint.textContent = 'Configure your server in Settings.';
+    setHint('Configure your server in Settings.');
   }
 }).catch(() => {
-  hint.textContent = 'Extension error — try reloading.';
+  setHint('Extension error — try reloading.');
 });
 
 sendBtn.addEventListener('click', async () => {
