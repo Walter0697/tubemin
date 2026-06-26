@@ -18,9 +18,9 @@ async function validateConnection() {
       headers: { 'X-API-Key': apiKey },
     });
     if (resp.ok) {
-      sendBtn.disabled = false;
       hint.textContent = '';
     } else if (resp.status === 401) {
+      sendBtn.disabled = true;
       hint.textContent = 'Invalid API key — check Settings.';
     } else {
       hint.textContent = `Server error (${resp.status}).`;
@@ -47,6 +47,7 @@ Promise.all([
   }),
 ]).then(() => {
   if (serverUrl && apiKey) {
+    sendBtn.disabled = false;  // enable immediately; validation runs in background
     validateConnection();
   } else {
     hint.textContent = 'Configure your server in Settings.';
