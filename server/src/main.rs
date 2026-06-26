@@ -14,6 +14,7 @@ mod watcher;
 use std::sync::Arc;
 use axum::{routing::{get, post}, Router};
 use tower_http::cors::{CorsLayer, Any};
+use tower_http::services::ServeDir;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -102,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/submit", post(handlers::submit))
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
+        .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
         .route("/settings", get(handlers::settings))

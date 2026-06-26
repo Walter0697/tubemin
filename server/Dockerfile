@@ -7,6 +7,7 @@ RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release && rm
 COPY src ./src
 COPY migrations ./migrations
 COPY templates ./templates
+COPY static ./static
 RUN touch src/main.rs && cargo build --release
 
 FROM alpine:3.20
@@ -15,5 +16,6 @@ WORKDIR /app
 COPY --from=builder /app/target/release/tubemin ./tubemin
 COPY --from=builder /app/migrations ./migrations
 COPY --from=builder /app/templates ./templates
+COPY static ./static
 EXPOSE 3000
 CMD ["./tubemin"]
