@@ -1,37 +1,41 @@
-<!-- server/templates/dashboard.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>Tubemin — Dashboard</title>
-  <style>
-    body { font-family: sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; }
-    h1 { font-size: 1.5rem; }
-    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-    th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
-    th { background: #f5f5f5; }
-    .status-pending { color: #888; }
-    .status-imported { color: #2a2; }
-    .status-error { color: #c00; }
-    nav a { margin-right: 1rem; }
-  </style>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <nav><a href="/dashboard">Dashboard</a><a href="/settings">Settings</a></nav>
-  <h1>Tubemin Dashboard</h1>
-  <table>
-    <thead><tr><th>URL</th><th>Status</th><th>Submitted</th></tr></thead>
-    <tbody>
-      {% for s in submissions %}
-      <tr>
-        <td><a href="{{ s.url }}" target="_blank">{{ s.url }}</a></td>
-        <td class="status-{{ s.status }}">{{ s.status }}</td>
-        <td>{{ s.submitted_at }}</td>
-      </tr>
-      {% else %}
-      <tr><td colspan="3">No submissions yet.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <nav>
+    <span class="nav-logo">▶ TUBEMIN</span>
+    <a href="/dashboard" class="nav-link active">Dashboard</a>
+    <a href="/settings" class="nav-link">Settings</a>
+  </nav>
+  <div class="page">
+    <h1 class="page-title">Dashboard</h1>
+    <p class="section-title">Recent Submissions</p>
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>URL</th>
+          <th>Status</th>
+          <th>Submitted</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in submissions %}
+        <tr>
+          <td><a href="{{ s.url }}" target="_blank">{{ s.url }}</a></td>
+          <td><span class="status-dot status-{{ s.status }}"></span>{{ s.status }}</td>
+          <td>{{ s.submitted_at }}</td>
+        </tr>
+        {% else %}
+        <tr>
+          <td colspan="3" style="color: var(--text-dim); padding: 20px 12px;">No submissions yet.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </body>
 </html>
