@@ -41,11 +41,18 @@ pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
     if matches!(ext, "part" | "ytdl" | "tmp") {
         return true;
     }
-    // MeTube names in-progress files as video.temp.ext — stem ends with ".temp"
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .map(|s| s.ends_with(".temp"))
-        .unwrap_or(false)
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    // MeTube in-progress: video.temp.ext
+    if stem.ends_with(".temp") {
+        return true;
+    }
+    // yt-dlp adaptive stream fragments before ffmpeg merge: video.f251.webm, video.f399.mp4
+    if let Some(stem_ext) = std::path::Path::new(stem).extension().and_then(|e| e.to_str()) {
+        if stem_ext.starts_with('f') && stem_ext[1..].chars().all(|c| c.is_ascii_digit()) {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) async fn handle_new_file(
@@ -82,6 +89,8 @@ mod tests {
         assert!(is_temp_file(std::path::Path::new("/downloads/video.ytdl")));
         assert!(is_temp_file(std::path::Path::new("/downloads/video.temp.webm")));
         assert!(is_temp_file(std::path::Path::new("/downloads/video.temp.mp4")));
+        assert!(is_temp_file(std::path::Path::new("/downloads/video.f251.webm")));
+        assert!(is_temp_file(std::path::Path::new("/downloads/video.f399.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mkv")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.webm")));

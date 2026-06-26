@@ -12,3 +12,9 @@ services:
 
   metube:
     image: alexta69/metube:latest
+    ports:
+      - "8081:8081"
+
+  peertube:
+    ports:
+      - "9000:9000"
