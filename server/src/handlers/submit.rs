@@ -87,6 +87,9 @@ mod tests {
             oidc_client_id: None,
             oidc_client_secret: None,
             oidc_redirect_url: None,
+            peertube_url: None,
+            peertube_username: None,
+            peertube_password: None,
         });
 
         let state = AppState { pool: pool.clone(), config };

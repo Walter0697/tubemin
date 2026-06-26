@@ -5,6 +5,7 @@ mod handlers;
 mod metube;
 mod oidc;
 mod password_auth;
+mod peertube;
 mod state;
 mod watcher;
 
@@ -33,10 +34,19 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Start file watcher
+    let pt_config = match (&config.peertube_url, &config.peertube_username, &config.peertube_password) {
+        (Some(url), Some(user), Some(pass)) => Some(watcher::PeerTubeConfig {
+            url: url.clone(),
+            username: user.clone(),
+            password: pass.clone(),
+        }),
+        _ => None,
+    };
     watcher::start(
         config.downloads_dir.clone(),
         config.peertube_import_dir.clone(),
         pool.clone(),
+        pt_config,
     );
 
     // Session layer

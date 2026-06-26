@@ -7,11 +7,19 @@ use tracing::{error, info};
 
 const POLL_INTERVAL_SECS: u64 = 5;
 
+pub struct PeerTubeConfig {
+    pub url: String,
+    pub username: String,
+    pub password: String,
+}
+
 pub fn start(
     downloads_dir: PathBuf,
     import_dir: PathBuf,
     pool: Arc<SqlitePool>,
+    peertube: Option<PeerTubeConfig>,
 ) -> tokio::task::JoinHandle<()> {
+    let peertube = Arc::new(peertube);
     tokio::spawn(async move {
         let mut seen: HashSet<PathBuf> = HashSet::new();
         let mut ticker = interval(Duration::from_secs(POLL_INTERVAL_SECS));
@@ -30,7 +38,13 @@ pub fn start(
                     continue;
                 }
                 seen.insert(path.clone());
-                handle_new_file(path, &import_dir, &pool).await;
+                let dest = handle_new_file(path, &import_dir, &pool).await;
+                if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
+                    match crate::peertube::upload(&pt.url, &pt.username, &pt.password, &dest).await {
+                        Ok(_) => info!("Uploaded {} to PeerTube", dest.display()),
+                        Err(e) => error!("PeerTube upload failed for {}: {}", dest.display(), e),
+                    }
+                }
             }
         }
     })
@@ -59,10 +73,10 @@ pub(crate) async fn handle_new_file(
     path: PathBuf,
     import_dir: &PathBuf,
     pool: &SqlitePool,
-) {
+) -> Option<PathBuf> {
     let filename = match path.file_name().and_then(|n| n.to_str()) {
         Some(n) => n.to_string(),
-        None => return,
+        None => return None,
     };
     let dest = import_dir.join(&filename);
     let move_result = std::fs::copy(&path, &dest)
@@ -71,10 +85,12 @@ pub(crate) async fn handle_new_file(
         Ok(_) => {
             info!("Moved {} to import dir", filename);
             let _ = crate::db::mark_imported(pool, &filename).await;
+            Some(dest)
         }
         Err(e) => {
             error!("Failed to move {}: {}", filename, e);
             let _ = crate::db::mark_error(pool, &filename).await;
+            None
         }
     }
 }
@@ -105,12 +121,13 @@ mod tests {
         let test_file = src_dir.path().join("video.mp4");
         std::fs::write(&test_file, b"fake video").unwrap();
 
-        handle_new_file(
+        let result = handle_new_file(
             test_file.clone(),
             &dst_dir.path().to_path_buf(),
             &pool,
         ).await;
 
+        assert!(result.is_some());
         assert!(!test_file.exists(), "source file should be moved");
         assert!(dst_dir.path().join("video.mp4").exists(), "dest file should exist");
     }
