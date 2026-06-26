@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tubemin — Dashboard</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -31,7 +32,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="3" style="color: var(--text-dim); padding: 20px 12px;">No submissions yet.</td>
+          <td colspan="3" class="empty-cell">No submissions yet.</td>
         </tr>
         {% endfor %}
       </tbody>

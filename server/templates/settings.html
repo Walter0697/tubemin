@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tubemin — Settings</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -52,7 +53,7 @@
         </tr>
         {% else %}
         <tr>
-          <td colspan="5" style="color: var(--text-dim); padding: 20px 12px;">No API keys yet.</td>
+          <td colspan="5" class="empty-cell">No API keys yet.</td>
         </tr>
         {% endfor %}
       </tbody>

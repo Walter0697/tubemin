@@ -11,6 +11,7 @@
   --text-dim:     #555555;
   --status-ok:    #4ade80;
   --status-err:   #e85d4a;
+  --status-warn:  #e8884a;   /* amber — unsupported URL warning */
   --mono: ui-monospace, 'JetBrains Mono', 'Fira Mono', monospace;
 }
 
@@ -129,7 +130,7 @@ input::placeholder { color: var(--text-dim); }
   min-height: 1em;
   text-align: center;
 }
-#hint.warn { color: #e8884a; }
+#hint.warn { color: var(--status-warn); }
 #hint a { color: var(--accent); }
 
 #status {

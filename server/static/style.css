@@ -11,6 +11,10 @@
   --text-dim:     #555555;
   --status-ok:    #4ade80;
   --status-err:   #e85d4a;
+  --status-warn:  #e8884a;   /* amber — unsupported URL warning */
+  --error-bg:     #2a1212;   /* login/banner error background */
+  --error-text:   #ffaaaa;   /* login/banner error text */
+  --border-subtle: #1e1e1e;  /* subtle row separator */
   --mono: ui-monospace, 'JetBrains Mono', 'Fira Mono', monospace;
 }
 
@@ -144,13 +148,14 @@ input::placeholder { color: var(--text-dim); }
 .data-table td {
   padding: 10px 12px;
   color: var(--text-muted);
-  border-bottom: 1px solid #1e1e1e;
+  border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
 }
 .data-table td:first-child { color: var(--text); }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table td a { color: var(--text); }
 .key-id { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
+.empty-cell { color: var(--text-dim); padding: 20px 12px; }
 
 /* ── Status dots ────────────────────────────────── */
 .status-dot {
@@ -217,11 +222,11 @@ input::placeholder { color: var(--text-dim); }
 }
 .login-card button { width: 100%; padding: 10px; }
 .error {
-  background: #2a1212;
+  background: var(--error-bg);
   border-left: 3px solid var(--accent);
   border-radius: 0 4px 4px 0;
   padding: 8px 12px;
   font-size: 12px;
-  color: #ffaaaa;
+  color: var(--error-text);
   margin-bottom: 16px;
 }
