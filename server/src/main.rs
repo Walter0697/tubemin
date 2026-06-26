@@ -10,6 +10,7 @@ mod watcher;
 
 use std::sync::Arc;
 use axum::{routing::{get, post}, Router};
+use tower_http::cors::{CorsLayer, Any};
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -58,6 +59,11 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
     let app = Router::new()
         .route("/", get(|| async { axum::response::Redirect::to("/auth/login") }))
         .route("/api/submit", post(handlers::submit))
@@ -68,6 +74,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/settings/keys/generate", post(handlers::generate_key))
         .route("/settings/keys/:id/revoke", post(handlers::revoke_key))
         .layer(session_layer)
+        .layer(cors)
         .with_state(app_state);
 
     let addr = format!("0.0.0.0:{}", config.api_port);
