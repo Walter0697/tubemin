@@ -24,7 +24,7 @@ async function validateConnection() {
       headers: { 'X-API-Key': apiKey },
     });
     if (resp.ok) {
-      setHint('');
+      // intentionally blank — don't clear hints set by other checks
     } else if (resp.status === 401) {
       sendBtn.disabled = true;
       setHint('Invalid API key — check Settings.');
@@ -48,6 +48,28 @@ async function checkUrlSupported() {
     }
   } catch {
     // server unreachable — validateConnection will surface that
+  }
+}
+
+async function checkExistingSubmission() {
+  if (!serverUrl || !currentUrl) return;
+  try {
+    const resp = await fetch(
+      `${serverUrl}/api/check-submission?url=${encodeURIComponent(currentUrl)}`
+    );
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.status === 'pending' || data.status === 'downloading') {
+      sendBtn.disabled = true;
+      setHint('Already in queue.');
+    } else if (data.status === 'imported') {
+      sendBtn.disabled = true;
+      setHint('Already downloaded.');
+    } else if (data.status === 'error') {
+      setHint('Last attempt failed — retry?', true);
+    }
+  } catch {
+    // non-fatal
   }
 }
 
@@ -76,6 +98,7 @@ Promise.all([
     sendBtn.disabled = false;  // enable immediately; checks run in background
     validateConnection();
     checkUrlSupported();
+    checkExistingSubmission();
   } else {
     setHint('Configure your server in Settings.');
   }
@@ -88,6 +111,7 @@ sendBtn.addEventListener('click', async () => {
   statusEl.className = '';
   statusEl.textContent = 'Sending…';
 
+  let succeeded = false;
   try {
     const resp = await fetch(`${serverUrl}/api/submit`, {
       method: 'POST',
@@ -99,8 +123,11 @@ sendBtn.addEventListener('click', async () => {
     });
 
     if (resp.ok) {
-      statusEl.className = 'success';
-      statusEl.textContent = 'Queued!';
+      succeeded = true;
+      sendBtn.textContent = 'Queued ✓';
+      setHint('');
+      statusEl.className = '';
+      statusEl.textContent = '';
     } else if (resp.status === 401) {
       statusEl.className = 'error';
       statusEl.textContent = 'Invalid API key. Check Settings.';
@@ -116,6 +143,6 @@ sendBtn.addEventListener('click', async () => {
     statusEl.className = 'error';
     statusEl.textContent = 'Could not reach server. Check Settings.';
   } finally {
-    sendBtn.disabled = false;
+    if (!succeeded) sendBtn.disabled = false;
   }
 });

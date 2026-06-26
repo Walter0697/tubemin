@@ -50,10 +50,14 @@ pub async fn submit(
         return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "metube unavailable"}))).into_response();
     }
 
-    let id = Uuid::new_v4().to_string();
-    if let Err(e) = db::create_submission(&state.pool, &id, &body.url).await {
-        error!(error = %e, "db error creating submission record");
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
+    // If a previous attempt errored, reset it to pending rather than inserting a duplicate.
+    let reused = db::reset_submission_to_pending(&state.pool, &body.url).await.unwrap_or(false);
+    if !reused {
+        let id = Uuid::new_v4().to_string();
+        if let Err(e) = db::create_submission(&state.pool, &id, &body.url).await {
+            error!(error = %e, "db error creating submission record");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
+        }
     }
 
     (StatusCode::OK, Json(SubmitResponse { status: "queued".into() })).into_response()

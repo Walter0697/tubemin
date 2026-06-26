@@ -61,6 +61,28 @@ pub async fn mark_error(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::E
     Ok(())
 }
 
+pub async fn get_submission_by_url(pool: &SqlitePool, url: &str) -> Result<Option<Submission>, sqlx::Error> {
+    sqlx::query_as::<_, Submission>(
+        "SELECT * FROM submissions WHERE url = ? ORDER BY submitted_at DESC LIMIT 1"
+    )
+    .bind(url)
+    .fetch_optional(pool)
+    .await
+}
+
+/// Reset an error row back to pending (for retry). Returns true if a row was updated.
+pub async fn reset_submission_to_pending(pool: &SqlitePool, url: &str) -> Result<bool, sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "UPDATE submissions SET status = 'pending', filename = NULL, updated_at = ? WHERE url = ? AND status = 'error'"
+    )
+    .bind(&now)
+    .bind(url)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn list_submissions(pool: &SqlitePool) -> Result<Vec<Submission>, sqlx::Error> {
     Ok(sqlx::query_as::<_, Submission>(
         "SELECT * FROM submissions ORDER BY submitted_at DESC"

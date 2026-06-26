@@ -103,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/submit", post(handlers::submit))
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
+        .route("/api/check-submission", get(handlers::check_submission))
         .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
