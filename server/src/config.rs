@@ -23,6 +23,9 @@ pub struct Config {
     pub peertube_host: Option<String>,
     pub peertube_username: Option<String>,
     pub peertube_password: Option<String>,
+    pub peertube_admin_email: Option<String>,
+    pub peertube_admin_username: Option<String>,
+    pub peertube_admin_password: Option<String>,
 }
 
 impl Config {
@@ -87,6 +90,11 @@ impl Config {
             peertube_host: std::env::var("PEERTUBE_HOST").ok(),
             peertube_username: std::env::var("PEERTUBE_USERNAME").ok(),
             peertube_password: std::env::var("PEERTUBE_PASSWORD").ok(),
+            peertube_admin_email: std::env::var("PEERTUBE_ADMIN_EMAIL").ok(),
+            peertube_admin_username: Some(
+                std::env::var("PEERTUBE_ADMIN_USERNAME").unwrap_or_else(|_| "root".into())
+            ),
+            peertube_admin_password: std::env::var("PEERTUBE_ADMIN_PASSWORD").ok(),
         })
     }
 }

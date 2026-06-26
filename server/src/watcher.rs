@@ -87,9 +87,10 @@ pub fn start(
                 continue;
             }
             seen.insert(path.clone());
+            let meta = crate::video_meta::load_for(&path);
             let dest = handle_new_file(path, &import_dir, &pool).await;
             if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
-                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest).await {
+                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta).await {
                     Ok(_) => info!("Uploaded {} to PeerTube", dest.display()),
                     Err(e) => error!("PeerTube upload failed for {}: {}", dest.display(), e),
                 }
@@ -100,7 +101,7 @@ pub fn start(
 
 pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-    if matches!(ext, "part" | "ytdl" | "tmp") {
+    if matches!(ext, "part" | "ytdl" | "tmp" | "json") {
         return true;
     }
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
@@ -132,6 +133,7 @@ pub(crate) async fn handle_new_file(
     match move_result {
         Ok(_) => {
             info!("Moved {} to import dir", filename);
+            let _ = std::fs::remove_file(path.with_extension("info.json"));
             let _ = crate::db::mark_imported(pool, &filename).await;
             Some(dest)
         }
@@ -155,6 +157,7 @@ mod tests {
         assert!(is_temp_file(std::path::Path::new("/downloads/video.temp.mp4")));
         assert!(is_temp_file(std::path::Path::new("/downloads/video.f251.webm")));
         assert!(is_temp_file(std::path::Path::new("/downloads/video.f399.mp4")));
+        assert!(is_temp_file(std::path::Path::new("/downloads/video.info.json")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mkv")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.webm")));

@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use reqwest::Client;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tokio_util::io::ReaderStream;
 
@@ -18,6 +18,111 @@ struct TokenResponse {
 #[derive(Deserialize)]
 struct VideoChannel {
     id: i64,
+}
+
+#[derive(Deserialize)]
+struct UserSearchResult {
+    data: Vec<UserEntry>,
+}
+
+#[derive(Deserialize)]
+struct UserEntry {
+    username: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateUserBody<'a> {
+    username: &'a str,
+    password: &'a str,
+    email: &'a str,
+    role: u8,         // 0 = User
+    video_quota: i64, // -1 = unlimited
+    video_quota_daily: i64,
+}
+
+/// Ensures the bot account exists in PeerTube, creating it if necessary.
+/// Must be called with admin credentials; bot credentials are separate.
+pub async fn ensure_account(
+    url: &str,
+    host_override: Option<&str>,
+    admin_username: &str,
+    admin_password: &str,
+    bot_username: &str,
+    bot_password: &str,
+    bot_email: &str,
+) -> Result<()> {
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
+    let client = Client::new();
+
+    // Auth as admin
+    let resp = client
+        .get(format!("{}/api/v1/oauth-clients/local", url))
+        .header("Host", &host)
+        .send().await?;
+    let body = resp.text().await?;
+    let oauth: OAuthClient = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
+
+    let resp = client
+        .post(format!("{}/api/v1/users/token", url))
+        .header("Host", &host)
+        .form(&[
+            ("client_id",     oauth.client_id.as_str()),
+            ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type",    "password"),
+            ("response_type", "code"),
+            ("username",      admin_username),
+            ("password",      admin_password),
+        ])
+        .send().await?;
+    let body = resp.text().await?;
+    let token: TokenResponse = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("admin token parse error ({e}): {body}"))?;
+
+    // Check if bot account already exists
+    let resp = client
+        .get(format!("{}/api/v1/users?search={}&count=1", url, bot_username))
+        .header("Host", &host)
+        .bearer_auth(&token.access_token)
+        .send().await?;
+    let body = resp.text().await?;
+    let results: UserSearchResult = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("user search parse error ({e}): {body}"))?;
+
+    if results.data.iter().any(|u| u.username == bot_username) {
+        tracing::info!("PeerTube bot account '{}' already exists", bot_username);
+        return Ok(());
+    }
+
+    // Create the bot account
+    let body = serde_json::to_string(&CreateUserBody {
+        username: bot_username,
+        password: bot_password,
+        email: bot_email,
+        role: 0,
+        video_quota: -1,
+        video_quota_daily: -1,
+    })?;
+
+    let resp = client
+        .post(format!("{}/api/v1/users", url))
+        .header("Host", &host)
+        .header("Content-Type", "application/json")
+        .bearer_auth(&token.access_token)
+        .body(body)
+        .send().await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("Failed to create bot account '{}' ({}): {}", bot_username, status, body));
+    }
+
+    tracing::info!("Created PeerTube bot account '{}'", bot_username);
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -48,7 +153,7 @@ fn derive_host(url: &str) -> String {
     url.to_string()
 }
 
-pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path) -> Result<()> {
+pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path, meta: &crate::video_meta::VideoMeta) -> Result<()> {
     // PeerTube validates Host against PEERTUBE_WEBSERVER_HOSTNAME (its public hostname).
     // When Tubemin connects via Docker-internal URL (peertube:9000) we must send the
     // public hostname (localhost:9000) in the Host header. PEERTUBE_HOST provides this.
@@ -103,11 +208,13 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         .and_then(|n| n.to_str())
         .unwrap_or("video")
         .to_string();
-    let title = Path::new(&filename)
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(&filename)
-        .to_string();
+    let title = meta.title.clone().unwrap_or_else(|| {
+        Path::new(&filename)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&filename)
+            .to_string()
+    });
     let mime = mime_for(file_path);
 
     let file = tokio::fs::File::open(file_path).await?;
@@ -119,11 +226,21 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         .file_name(filename)
         .mime_str(mime)?;
 
-    let form = reqwest::multipart::Form::new()
+    let description = crate::video_meta::format_description(meta);
+
+    let mut form = reqwest::multipart::Form::new()
         .text("name", title)
         .text("channelId", channel_id.to_string())
-        .text("privacy", "1") // 1 = Public
-        .part("videofile", video_part);
+        .text("privacy", "1"); // 1 = Public
+
+    if !description.is_empty() {
+        form = form.text("description", description);
+    }
+    if let Some(iso) = meta.upload_date.as_deref().and_then(crate::video_meta::upload_date_to_iso) {
+        form = form.text("originallyPublishedAt", iso);
+    }
+
+    let form = form.part("videofile", video_part);
 
     let resp = client
         .post(format!("{}/api/v1/videos/upload", url))

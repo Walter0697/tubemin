@@ -3,6 +3,7 @@ services:
   caddy:
     image: caddy:alpine
     restart: unless-stopped
+    env_file: .env
     ports:
       - "80:80"
       - "443:443"
@@ -17,12 +18,17 @@ services:
     build: ./server
     restart: unless-stopped
     env_file: .env
+    ports:
+      - "3000:3000"
     volumes:
       - downloads:/downloads
       - peertube_import:/peertube-import
       - tubemin_data:/data
     depends_on:
-      - metube
+      metube:
+        condition: service_started
+      peertube:
+        condition: service_healthy
 
   metube:
     image: ghcr.io/alexta69/metube:latest
@@ -31,17 +37,26 @@ services:
       - downloads:/downloads
     environment:
       DOWNLOAD_DIR: /downloads
+      YTDL_OPTIONS: '{"writeinfojson": true}'
 
   peertube:
     image: chocobozzz/peertube:production-bookworm
     restart: unless-stopped
     env_file: .env
+    ports:
+      - "9000:9000"
     volumes:
       - peertube_data:/data
       - peertube_import:/peertube-import
     depends_on:
       - peertube_db
       - peertube_redis
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9000/api/v1/config > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
 
   peertube_db:
     image: postgres:16-alpine

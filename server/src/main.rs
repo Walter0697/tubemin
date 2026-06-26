@@ -7,6 +7,7 @@ mod oidc;
 mod password_auth;
 mod peertube;
 mod state;
+mod video_meta;
 mod watcher;
 
 use std::sync::Arc;
@@ -32,6 +33,26 @@ async fn main() -> anyhow::Result<()> {
         pool: pool.clone(),
         config: config.clone(),
     };
+
+    // Auto-provision PeerTube bot account if admin credentials are provided
+    if let (Some(url), Some(host), Some(admin_user), Some(admin_pass), Some(bot_user), Some(bot_pass)) = (
+        &config.peertube_url,
+        config.peertube_host.as_deref(),
+        &config.peertube_admin_username,
+        &config.peertube_admin_password,
+        &config.peertube_username,
+        &config.peertube_password,
+    ) {
+        if admin_user != bot_user {
+            let bot_email = config.peertube_admin_email.as_deref()
+                .and_then(|e| e.split('@').nth(1))
+                .map(|domain| format!("{}@{}", bot_user, domain))
+                .unwrap_or_else(|| format!("{}@peertube.example", bot_user));
+            if let Err(e) = peertube::ensure_account(url, Some(host), admin_user, admin_pass, bot_user, bot_pass, &bot_email).await {
+                tracing::warn!("PeerTube bot account provisioning failed (will retry on next start): {}", e);
+            }
+        }
+    }
 
     // Start file watcher
     let pt_config = match (&config.peertube_url, &config.peertube_username, &config.peertube_password) {
