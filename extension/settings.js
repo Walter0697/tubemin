@@ -8,7 +8,7 @@ const keyMasked = document.getElementById('key-masked');
 const changeBtn = document.getElementById('change-btn');
 const saveBtn = document.getElementById('save-btn');
 const testBtn = document.getElementById('test-btn');
-const status = document.getElementById('status');
+const status = document.getElementById('settings-status');
 
 function maskKey(key) {
   if (!key || key.length <= 4) return '••••';
@@ -79,7 +79,7 @@ saveBtn.addEventListener('click', () => {
   const newKey = apiKeyInput.value.trim();
 
   if (!serverUrl) {
-    status.style.color = '#c00';
+    status.className = 'err';
     status.textContent = 'Server URL is required.';
     return;
   }
@@ -91,19 +91,19 @@ saveBtn.addEventListener('click', () => {
     toSave.apiKey = newKey;
     chrome.storage.sync.set(toSave, () => {
       showMasked(newKey);
-      status.style.color = '#2a2';
+      status.className = 'ok';
       status.textContent = 'Saved.';
     });
   } else {
     // Save URL only; keep existing key
     chrome.storage.sync.get(['apiKey'], (existing) => {
       if (!existing.apiKey) {
-        status.style.color = '#c00';
+        status.className = 'err';
         status.textContent = 'API key is required.';
         return;
       }
       chrome.storage.sync.set(toSave, () => {
-        status.style.color = '#2a2';
+        status.className = 'ok';
         status.textContent = 'Saved.';
       });
     });
