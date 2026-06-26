@@ -150,6 +150,7 @@ input::placeholder { color: var(--text-dim); }
 .data-table td:first-child { color: var(--text); }
 .data-table tr:last-child td { border-bottom: none; }
 .data-table td a { color: var(--text); }
+.key-id { font-family: var(--mono); font-size: 12px; color: var(--text-muted); }
 
 /* ── Status dots ────────────────────────────────── */
 .status-dot {

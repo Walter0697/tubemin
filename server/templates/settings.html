@@ -39,7 +39,7 @@
       <tbody>
         {% for key in api_keys %}
         <tr>
-          <td style="font-family: var(--mono); font-size: 12px; color: var(--text-muted);">{{ key.id[:8] }}</td>
+          <td class="key-id">{{ key.id[:8] }}</td>
           <td>{{ key.label | default("-") }}</td>
           <td>{{ key.created_at }}</td>
           <td>{{ key.last_used_at | default("never") }}</td>
