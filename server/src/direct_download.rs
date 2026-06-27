@@ -138,6 +138,7 @@ async fn extract_thumbnail(src: &Path, dest: &Path) -> Result<(), anyhow::Error>
             "-i", src.to_str().unwrap_or(""),
             "-vframes", "1",
             "-q:v", "2",
+            "-update", "1",   // write a single file, not an image sequence
             thumb_path.to_str().unwrap_or(""),
         ])
         .status()
@@ -145,6 +146,9 @@ async fn extract_thumbnail(src: &Path, dest: &Path) -> Result<(), anyhow::Error>
 
     if !status.success() {
         return Err(anyhow::anyhow!("ffmpeg exited with status {}", status));
+    }
+    if !thumb_path.exists() {
+        return Err(anyhow::anyhow!("ffmpeg exited successfully but wrote no thumbnail"));
     }
     info!("Thumbnail extracted: {}", thumb_path.display());
     Ok(())
