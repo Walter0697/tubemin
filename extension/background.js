@@ -66,6 +66,13 @@ async function analyzeM3u8(url, cookies, referer) {
       }
       return { duration, isMaster: true };
     } else {
+      // Subtitle-only playlist (WebVTT segments) — not a video stream, discard
+      const hasVtt = text.split('\n').some(l => {
+        const t = l.trim();
+        return t && !t.startsWith('#') && t.split('?')[0].endsWith('.vtt');
+      });
+      if (hasVtt) return { duration: null, isMaster: null, isSubtitle: true };
+
       // Media/variant playlist
       let total = 0;
       for (const m of text.matchAll(/#EXTINF:([\d.]+)/g)) total += parseFloat(m[1]);
@@ -153,7 +160,15 @@ async function handleIntercept(details) {
   // Async: analyse the m3u8 manifest for duration and master/variant status,
   // then prune: keep master playlists, drop variants when a master exists.
   if (isHls) {
-    const { duration, isMaster } = await analyzeM3u8(details.url, cookies, pageUrl);
+    const { duration, isMaster, isSubtitle } = await analyzeM3u8(details.url, cookies, pageUrl);
+
+    // Subtitle-only tracks have no video — remove from capture list
+    if (isSubtitle) {
+      const current = await getDomainList(hostname);
+      await setDomainList(hostname, current.filter(v => pathKey(v.videoUrl) !== pathKey(entry.videoUrl)));
+      return;
+    }
+
     const current = await getDomainList(hostname);
     const myIdx = current.findIndex(v => pathKey(v.videoUrl) === pathKey(entry.videoUrl));
     if (myIdx === -1) return;
