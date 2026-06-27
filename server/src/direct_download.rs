@@ -75,11 +75,12 @@ async fn download_hls(
         return Err(anyhow::anyhow!("ffmpeg exited with status {}", status));
     }
 
-    tokio::fs::rename(&part, dest).await?;
-    info!("HLS download complete: {}", dest.display());
-    if let Err(e) = extract_thumbnail(dest).await {
+    // Extract thumbnail before rename so the watcher finds it alongside the .mp4
+    if let Err(e) = extract_thumbnail(&part, dest).await {
         tracing::warn!("thumbnail extraction failed for {}: {}", dest.display(), e);
     }
+    tokio::fs::rename(&part, dest).await?;
+    info!("HLS download complete: {}", dest.display());
     Ok(())
 }
 
@@ -115,23 +116,26 @@ async fn download_direct(
     file.flush().await?;
     drop(file);
 
-    tokio::fs::rename(&part, dest).await?;
-    info!("Direct download complete: {}", dest.display());
-    if let Err(e) = extract_thumbnail(dest).await {
+    // Extract thumbnail before rename so the watcher finds it alongside the .mp4
+    if let Err(e) = extract_thumbnail(&part, dest).await {
         tracing::warn!("thumbnail extraction failed for {}: {}", dest.display(), e);
     }
+    tokio::fs::rename(&part, dest).await?;
+    info!("Direct download complete: {}", dest.display());
     Ok(())
 }
 
 // ── Thumbnail extraction ───────────────────────────────────────────────────
 
-async fn extract_thumbnail(video_path: &Path) -> Result<(), anyhow::Error> {
-    let thumb_path = video_path.with_extension("jpg");
+// Reads from `src` (the .tmp file), writes thumbnail named after `dest` (the final .mp4 path).
+// Called before the rename so the .jpg exists when the watcher notices the .mp4.
+async fn extract_thumbnail(src: &Path, dest: &Path) -> Result<(), anyhow::Error> {
+    let thumb_path = dest.with_extension("jpg");
     let status = tokio::process::Command::new("ffmpeg")
         .args([
             "-y",
             "-ss", "5",
-            "-i", video_path.to_str().unwrap_or(""),
+            "-i", src.to_str().unwrap_or(""),
             "-vframes", "1",
             "-q:v", "2",
             thumb_path.to_str().unwrap_or(""),
