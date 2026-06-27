@@ -190,8 +190,10 @@ struct UploadResponse {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct UploadedVideo {
     uuid: String,
+    preview_path: Option<String>,
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -333,5 +335,6 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
     let body = resp.text().await?;
     let upload: UploadResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow!("upload response parse error ({e}): {body}"))?;
-    Ok(format!("/lazy-static/previews/{}.jpg", upload.video.uuid))
+    Ok(upload.video.preview_path
+        .unwrap_or_else(|| format!("/lazy-static/previews/{}.jpg", upload.video.uuid)))
 }
