@@ -9,10 +9,13 @@ pub async fn dashboard(
     let submissions = db::list_submissions(&state.pool).await.unwrap_or_default();
 
     // Public-facing PeerTube base URL for constructing thumbnail URLs in the browser.
-    // Uses PEERTUBE_HOST with https:// for production; empty string disables PeerTube thumbs.
+    // Uses http:// for localhost/IP (local dev), https:// for named hosts (production).
     let peertube_base = state.config.peertube_host
         .as_ref()
-        .map(|h| format!("https://{}", h))
+        .map(|h| {
+            let is_local = h.starts_with("localhost") || h.starts_with("127.") || h.starts_with("192.168.");
+            format!("{}://{}", if is_local { "http" } else { "https" }, h)
+        })
         .unwrap_or_default();
 
     let mut env = Environment::new();
