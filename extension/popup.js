@@ -1,6 +1,7 @@
 // extension/popup.js
 
 const sendBtn = document.getElementById('send-btn');
+const dashboardBtn = document.getElementById('dashboard-btn');
 const urlSite = document.getElementById('url-site');
 const urlPreview = document.getElementById('url-preview');
 const hint = document.getElementById('hint');
@@ -12,6 +13,10 @@ let serverUrl = '';
 let apiKey = '';
 
 settingsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
+
+dashboardBtn.addEventListener('click', () => {
+  if (serverUrl) chrome.tabs.create({ url: `${serverUrl}/dashboard` });
+});
 
 function setHint(text, warn = false) {
   hint.textContent = text;
@@ -96,10 +101,12 @@ Promise.all([
 ]).then(() => {
   if (serverUrl && apiKey) {
     sendBtn.disabled = false;  // enable immediately; checks run in background
+    dashboardBtn.disabled = false;
     validateConnection();
     checkUrlSupported();
     checkExistingSubmission();
   } else {
+    dashboardBtn.disabled = !serverUrl;
     setHint('Configure your server in Settings.');
   }
 }).catch(() => {
