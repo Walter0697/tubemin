@@ -1,6 +1,8 @@
 # Tubemin
 
-A self-hosted video pipeline: submit YouTube (or any yt-dlp-supported) URL from a Chrome extension → downloaded by MeTube → auto-imported into PeerTube.
+<img src="extension/icons/icon128.png" width="64" align="right" alt="Tubemin icon">
+
+A self-hosted video pipeline: submit any MeTube-supported URL from a Chrome extension → downloaded by MeTube → auto-imported into PeerTube.
 
 ```
 Chrome extension  →  Tubemin API  →  MeTube  →  /downloads  →  PeerTube
@@ -13,7 +15,6 @@ Chrome extension  →  Tubemin API  →  MeTube  →  /downloads  →  PeerTube
 | **Tubemin** | Rust API server + web dashboard |
 | **MeTube** | yt-dlp frontend that does the actual downloading |
 | **PeerTube** | Self-hosted video platform, receives imported videos |
-| **Caddy** | Reverse proxy with automatic HTTPS |
 | **Chrome extension** | One-click submit from any browser tab |
 
 ## Quick start (local, no HTTPS)
@@ -132,7 +133,7 @@ The extension loads directly from the cloned folder, so a `git pull` is all you 
 
 ### Usage
 
-- **yt-dlp supported sites** (YouTube, Vimeo, etc.): navigate to the video page and click the extension icon → **Queue Video**.
+- **MeTube-supported sites** (e.g. Vimeo, Twitch, etc.): navigate to the video page and click the extension icon → **Queue Video**.
 - **Other sites**: play the video first so the player makes its network requests, then click the extension icon. Detected streams appear as a list — rename if needed, select the ones you want, click **Queue Selected**.
 
 ## Auth modes
@@ -153,12 +154,12 @@ Then fill in the four `OIDC_*` vars in `.env`.
 ## Pipeline details
 
 1. Extension POSTs the URL to `/api/submit` (requires API key).
-2. Tubemin validates the URL against the yt-dlp supported-domain list and forwards it to MeTube.
+2. Tubemin validates the URL and forwards it to MeTube (or downloads directly via ffmpeg for raw stream URLs).
 3. MeTube downloads the video to the shared `/downloads` volume.
 4. Tubemin's file watcher detects the new file and triggers a PeerTube import via the API.
 5. The dashboard auto-refreshes every 5 seconds while any submission is pending.
 
-**Status flow**: `pending` → `imported` (success) or `error` (yt-dlp failed)
+**Status flow**: `pending` → `imported` (success) or `error` (download failed)
 
 ## Rebuilding after changes
 
