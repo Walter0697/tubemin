@@ -82,15 +82,15 @@ input::placeholder { color: var(--text-dim); }
   font-weight: 800;
   letter-spacing: 2px;
 }
-.popup-settings-link {
-  margin-left: auto;
+.popup-topbar-link {
   color: var(--text-dim);
   font-size: 16px;
   text-decoration: none;
   cursor: pointer;
   line-height: 1;
 }
-.popup-settings-link:hover { color: var(--text-muted); text-decoration: none; }
+.popup-topbar-link:first-of-type { margin-left: auto; }
+.popup-topbar-link:hover { color: var(--text-muted); text-decoration: none; }
 
 .popup-content {
   padding: 14px;

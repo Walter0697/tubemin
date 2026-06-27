@@ -101,12 +101,10 @@ Promise.all([
 ]).then(() => {
   if (serverUrl && apiKey) {
     sendBtn.disabled = false;  // enable immediately; checks run in background
-    dashboardBtn.disabled = false;
     validateConnection();
     checkUrlSupported();
     checkExistingSubmission();
   } else {
-    dashboardBtn.disabled = !serverUrl;
     setHint('Configure your server in Settings.');
   }
 }).catch(() => {
