@@ -41,7 +41,7 @@
 
   <script src="/static/app.js"></script>
   <script>
-    const PEERTUBE_BASE = "{{ peertube_base }}";
+    const PEERTUBE_BASE = "{{ peertube_base | safe }}";
     const PER_PAGE = 24;
 
     let currentPage   = 1;
