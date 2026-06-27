@@ -1,21 +1,24 @@
-use axum::{extract::State, response::Html};
+use axum::{extract::{State, Request}, response::Html};
 use minijinja::Environment;
 use crate::{db, oidc::RequireAuth, state::AppState};
 
 pub async fn dashboard(
     RequireAuth(_user): RequireAuth,
     State(state): State<AppState>,
+    req: Request,
 ) -> Html<String> {
     let submissions = db::list_submissions(&state.pool).await.unwrap_or_default();
 
-    // Public-facing PeerTube base URL for constructing thumbnail URLs in the browser.
-    // Uses http:// for localhost/IP (local dev), https:// for named hosts (production).
+    // Mirror the scheme of the incoming request: Caddy sets X-Forwarded-Proto: https
+    // in production; local dev has no such header so we fall back to http.
+    let scheme = req.headers()
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("http");
+
     let peertube_base = state.config.peertube_host
         .as_ref()
-        .map(|h| {
-            let is_local = h.starts_with("localhost") || h.starts_with("127.") || h.starts_with("192.168.");
-            format!("{}://{}", if is_local { "http" } else { "https" }, h)
-        })
+        .map(|h| format!("{}://{}", scheme, h))
         .unwrap_or_default();
 
     let mut env = Environment::new();
