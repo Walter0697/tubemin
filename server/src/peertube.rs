@@ -41,6 +41,8 @@ struct CreateUserBody<'a> {
     video_quota_daily: i64,
 }
 
+static BOT_AVATAR: &[u8] = include_bytes!("../assets/icon128.png");
+
 /// Ensures the bot account exists in PeerTube, creating it if necessary.
 /// Must be called with admin credentials; bot credentials are separate.
 pub async fn ensure_account(
@@ -122,6 +124,58 @@ pub async fn ensure_account(
     }
 
     tracing::info!("Created PeerTube bot account '{}'", bot_username);
+
+    // Set the bot's avatar — log in as bot, then upload icon
+    if let Err(e) = set_bot_avatar(&client, url, &host, &oauth, bot_username, bot_password).await {
+        tracing::warn!("Could not set bot avatar (non-fatal): {}", e);
+    }
+
+    Ok(())
+}
+
+async fn set_bot_avatar(
+    client: &Client,
+    url: &str,
+    host: &str,
+    oauth: &OAuthClient,
+    bot_username: &str,
+    bot_password: &str,
+) -> Result<()> {
+    let resp = client
+        .post(format!("{}/api/v1/users/token", url))
+        .header("Host", host)
+        .form(&[
+            ("client_id",     oauth.client_id.as_str()),
+            ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type",    "password"),
+            ("response_type", "code"),
+            ("username",      bot_username),
+            ("password",      bot_password),
+        ])
+        .send().await?;
+    let body = resp.text().await?;
+    let token: TokenResponse = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("bot token parse error ({e}): {body}"))?;
+
+    let avatar_part = reqwest::multipart::Part::bytes(BOT_AVATAR)
+        .file_name("icon128.png")
+        .mime_str("image/png")?;
+    let form = reqwest::multipart::Form::new().part("avatarfile", avatar_part);
+
+    let resp = client
+        .post(format!("{}/api/v1/users/me/avatar/pick", url))
+        .header("Host", host)
+        .bearer_auth(&token.access_token)
+        .multipart(form)
+        .send().await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("avatar upload failed ({}): {}", status, body));
+    }
+
+    tracing::info!("Set avatar for PeerTube bot account '{}'", bot_username);
     Ok(())
 }
 

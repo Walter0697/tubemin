@@ -8,6 +8,7 @@ COPY src ./src
 COPY migrations ./migrations
 COPY templates ./templates
 COPY static ./static
+COPY assets ./assets
 RUN touch src/main.rs && cargo build --release
 
 FROM alpine:3.20
