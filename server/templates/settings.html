@@ -19,7 +19,10 @@
     {% if new_key %}
     <div class="new-key">
       <strong>New API key — copy now, shown once:</strong>
-      <code>{{ new_key }}</code>
+      <div class="new-key-row">
+        <input class="new-key-input" id="new-key-value" type="text" value="{{ new_key }}" readonly>
+        <button class="btn-secondary" id="copy-key-btn" type="button">Copy</button>
+      </div>
     </div>
     {% endif %}
 
@@ -61,5 +64,18 @@
     </table>
   </div>
   <script src="/static/app.js"></script>
+  {% if new_key %}
+  <script>
+    const copyBtn = document.getElementById('copy-key-btn');
+    const keyInput = document.getElementById('new-key-value');
+    copyBtn.addEventListener('click', () => {
+      navigator.clipboard.writeText(keyInput.value).then(() => {
+        copyBtn.textContent = 'Copied!';
+        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+      });
+    });
+    keyInput.addEventListener('focus', () => keyInput.select());
+  </script>
+  {% endif %}
 </body>
 </html>
