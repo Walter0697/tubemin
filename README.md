@@ -92,13 +92,48 @@ Open `https://tubemin.yourdomain.com/settings`, log in, and generate a key. You'
 
 ## Chrome extension
 
-Load unpacked from the `extension/` directory in `chrome://extensions` (Developer mode on).
+The extension is not listed in any browser store — install it directly from this repo.
 
-In the extension settings, enter:
-- **Server URL**: `https://tubemin.yourdomain.com` (no trailing slash)
-- **API Key**: the key you generated in step 4
+### Installation
 
-Click the extension icon on any video page to submit it.
+**1. Clone the repo** (if you haven't already):
+
+```bash
+git clone https://github.com/youruser/tubemin.git
+```
+
+**2. Open Chrome extensions page:**
+
+Navigate to `chrome://extensions` in your browser.
+
+**3. Enable Developer mode:**
+
+Toggle **Developer mode** on (top-right corner of the extensions page).
+
+**4. Load the extension:**
+
+Click **Load unpacked**, then select the `extension/` folder inside the cloned repo.
+
+The Tubemin icon will appear in your toolbar. Pin it for easy access.
+
+### Configuration
+
+Click the extension icon → **⚙ Settings**, then enter:
+
+- **Server URL**: `https://tubemin.yourdomain.com` (or `http://localhost:3000` for local)
+- **API Key**: the key generated in Tubemin's Settings page
+- **Minimum video duration** *(optional)*: ignore clips shorter than N minutes (applies to HLS streams only)
+
+Click **Save**, then **Test Connection** to verify.
+
+### Keeping it updated
+
+The extension loads directly from the cloned folder, so a `git pull` is all you need — no reinstall required. If the `manifest.json` changes, go to `chrome://extensions` and click the **↺ reload** icon on the Tubemin card.
+
+### Usage
+
+- **yt-dlp supported sites** (YouTube, Vimeo, etc.): navigate to the video page and click the extension icon → **Queue Video**.
+- **Other sites**: play the video first so the player makes its network requests, then click the extension icon. Detected streams appear as a list — rename if needed, select the ones you want, click **Queue Selected**.
 
 ## Auth modes
 

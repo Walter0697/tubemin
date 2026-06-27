@@ -1,6 +1,7 @@
 mod api_keys;
 mod config;
 mod db;
+mod direct_download;
 mod handlers;
 mod metube;
 mod oidc;
@@ -108,6 +109,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
         .route("/api/check-submission", get(handlers::check_submission))
+        .route("/api/submissions", get(handlers::list_submissions))
         .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))

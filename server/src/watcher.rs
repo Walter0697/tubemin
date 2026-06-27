@@ -87,6 +87,7 @@ pub fn start(
                 continue;
             }
             seen.insert(path.clone());
+            let path_key = path.clone();
 
             // Read thumbnail bytes before the video is moved out of /downloads
             let thumbnail = crate::video_meta::find_thumbnail_path(&path).and_then(|tp| {
@@ -99,6 +100,11 @@ pub fn start(
 
             let meta = crate::video_meta::load_for(&path);
             let dest = handle_new_file(path, &import_dir, &pool).await;
+            // Remove from seen on success so a future file with the same name
+            // (e.g. a re-download after the first was moved out) gets processed.
+            if dest.is_some() {
+                seen.remove(&path_key);
+            }
             if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
                 let thumb_arg = thumbnail.as_ref().map(|(b, m)| (b.clone(), m.as_str()));
                 match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta, thumb_arg).await {

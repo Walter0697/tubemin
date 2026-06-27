@@ -14,43 +14,54 @@
     <a href="/settings" class="nav-link">Settings</a>
   </nav>
   <div class="page">
-    <h1 class="page-title">Dashboard</h1>
-    <div class="card-grid">
-      {% for s in submissions %}
-      <a class="card{% if s.status == 'pending' or s.status == 'downloading' %} processing{% endif %}"
-         href="{{ s.url }}" target="_blank"
-         data-url="{{ s.url }}" data-ts="{{ s.submitted_at }}"
-         {% if s.peertube_thumb %}data-thumb="{{ s.peertube_thumb }}"{% endif %}>
-        <div class="card-thumb"></div>
-        <div class="card-body">
-          <div class="card-site"></div>
-          <div class="card-title">{% if s.title %}{{ s.title }}{% endif %}</div>
-          <div class="card-url">{{ s.url }}</div>
-          <div class="card-footer">
-            <span class="card-status">
-              <span class="status-dot status-{{ s.status }}"></span>{{ s.status }}
-            </span>
-            <span class="card-time">{{ s.submitted_at }}</span>
-          </div>
-        </div>
-      </a>
-      {% else %}
-      <p style="grid-column:1/-1; color:var(--text-dim); margin:0; padding:20px 0;">No submissions yet.</p>
-      {% endfor %}
+    <div class="dashboard-header">
+      <h1 class="page-title">Dashboard</h1>
+    </div>
+
+    <div class="filter-bar">
+      <div class="filter-tabs">
+        <button class="filter-tab active" data-status="all">All<span class="filter-count" id="count-all"></span></button>
+        <button class="filter-tab" data-status="pending">Pending<span class="filter-count" id="count-pending"></span></button>
+        <button class="filter-tab" data-status="imported">Imported<span class="filter-count" id="count-imported"></span></button>
+        <button class="filter-tab" data-status="error">Error<span class="filter-count" id="count-error"></span></button>
+      </div>
+      <input type="text" id="search-input" class="search-input" placeholder="Search titles or URLs…">
+    </div>
+
+    <div class="card-grid" id="card-grid">
+      <p class="empty-msg" id="empty-msg" hidden>No submissions yet.</p>
+    </div>
+
+    <div class="pagination" id="pagination" hidden>
+      <button id="prev-btn" class="btn-secondary" disabled>← Prev</button>
+      <span class="pagination-info" id="pagination-info"></span>
+      <button id="next-btn" class="btn-secondary">Next →</button>
     </div>
   </div>
+
   <script src="/static/app.js"></script>
   <script>
     const PEERTUBE_BASE = "{{ peertube_base }}";
+    const PER_PAGE = 24;
+
+    let currentPage   = 1;
+    let currentStatus = 'all';
+    let currentSearch = '';
+    let currentTotal  = 0;
+    let pollTimer     = null;
+    let searchDebounce = null;
+    // id → card element, for in-place status updates
+    const cardMap = new Map();
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
     function ytId(url) {
       try {
         const u = new URL(url);
         if (u.hostname.includes('youtu.be')) return u.pathname.slice(1).split('?')[0];
-        if (u.hostname.includes('youtube.com') || u.hostname.includes('music.youtube.com')) {
+        if (u.hostname.includes('youtube.com') || u.hostname.includes('music.youtube.com'))
           return u.searchParams.get('v') ||
             (u.pathname.includes('/shorts/') ? u.pathname.split('/').pop() : null);
-        }
       } catch {}
       return null;
     }
@@ -67,47 +78,228 @@
       return Math.floor(s / 86400) + 'd ago';
     }
 
-    function setPlaceholder(el, url) {
-      el.innerHTML =
+    function setPlaceholder(thumbEl, url) {
+      thumbEl.innerHTML =
         '<div class="card-thumb-placeholder">' +
-        '<span class="ph-icon">▶</span>' +
-        '<span class="ph-site">' + siteHost(url) + '</span>' +
+          '<span class="ph-icon">▶</span>' +
+          '<span class="ph-site">' + siteHost(url) + '</span>' +
         '</div>';
     }
 
-    let hasProcessing = false;
+    // ── Card rendering ────────────────────────────────────────────────────────
 
-    document.querySelectorAll('a.card').forEach(card => {
-      const url = card.dataset.url;
-      const thumb = card.querySelector('.card-thumb');
-      const site = card.querySelector('.card-site');
-      const timeEl = card.querySelector('.card-time');
+    function buildCard(s) {
+      const card = document.createElement('a');
+      card.className = 'card' + (isProcessing(s.status) ? ' processing' : '');
+      card.href = s.url;
+      card.target = '_blank';
+      card.dataset.id  = s.id;
+      card.dataset.url = s.url;
+      card.dataset.ts  = s.submitted_at;
+      if (s.peertube_thumb) card.dataset.thumb = s.peertube_thumb;
 
-      site.textContent = siteHost(url);
-      if (timeEl) timeEl.textContent = relTime(card.dataset.ts);
+      card.innerHTML =
+        '<div class="card-thumb"></div>' +
+        '<div class="card-body">' +
+          '<div class="card-site"></div>' +
+          '<div class="card-title">' + (s.title ? escHtml(s.title) : '') + '</div>' +
+          '<div class="card-url">' + escHtml(s.url) + '</div>' +
+          '<div class="card-footer">' +
+            '<span class="card-status">' +
+              '<span class="status-dot status-' + s.status + '"></span>' + s.status +
+            '</span>' +
+            '<span class="card-time">' + relTime(s.submitted_at) + '</span>' +
+          '</div>' +
+        '</div>';
 
-      const peertubePath = card.dataset.thumb;
-      const img = document.createElement('img');
-      img.alt = '';
-      img.onerror = () => { img.remove(); setPlaceholder(thumb, url); };
+      hydrateCard(card, s);
+      return card;
+    }
 
+    function hydrateCard(card, s) {
+      const thumb  = card.querySelector('.card-thumb');
+      const siteEl = card.querySelector('.card-site');
+      if (siteEl) siteEl.textContent = siteHost(s.url);
+
+      const peertubePath = s.peertube_thumb || card.dataset.thumb;
       if (peertubePath && PEERTUBE_BASE) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.onerror = () => { img.remove(); setPlaceholder(thumb, s.url); };
         img.src = PEERTUBE_BASE + peertubePath;
+        thumb.innerHTML = '';
         thumb.appendChild(img);
       } else {
-        const id = ytId(url);
+        const id = ytId(s.url);
         if (id) {
+          const img = document.createElement('img');
+          img.alt = '';
+          img.onerror = () => { img.remove(); setPlaceholder(thumb, s.url); };
           img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
+          thumb.innerHTML = '';
           thumb.appendChild(img);
         } else {
-          setPlaceholder(thumb, url);
+          setPlaceholder(thumb, s.url);
         }
       }
+    }
 
-      if (card.classList.contains('processing')) hasProcessing = true;
+    function updateCardStatus(card, s) {
+      const dot    = card.querySelector('.status-dot');
+      const label  = card.querySelector('.card-status');
+      const titleEl = card.querySelector('.card-title');
+      const proc   = isProcessing(s.status);
+
+      if (dot) {
+        dot.className = 'status-dot status-' + s.status;
+        dot.nextSibling.textContent = s.status;
+      }
+      if (titleEl && s.title && !titleEl.textContent.trim()) {
+        titleEl.textContent = s.title;
+      }
+      card.classList.toggle('processing', proc);
+
+      // Pick up thumbnail once imported
+      if (s.peertube_thumb && !card.dataset.thumb) {
+        card.dataset.thumb = s.peertube_thumb;
+        hydrateCard(card, s);
+      }
+    }
+
+    function escHtml(s) {
+      return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function isProcessing(status) {
+      return status === 'pending' || status === 'downloading';
+    }
+
+    // ── Data fetching & rendering ─────────────────────────────────────────────
+
+    async function loadPage(page, status, search) {
+      const params = new URLSearchParams({ page, per_page: PER_PAGE, status });
+      if (search) params.set('q', search);
+      const res = await fetch('/api/submissions?' + params);
+      if (!res.ok) return;
+      return res.json();
+    }
+
+    async function fadeGrid(fn) {
+      const grid = document.getElementById('card-grid');
+      grid.classList.add('grid-fading');
+      await new Promise(r => setTimeout(r, 160));
+      fn();
+      grid.classList.remove('grid-fading');
+    }
+
+    function applyData(data, isRefresh) {
+      currentTotal = data.total;
+
+      // Update filter counts
+      const tabs = ['all', 'pending', 'imported', 'error'];
+      tabs.forEach(s => {
+        const el = document.getElementById('count-' + s);
+        if (el) el.textContent = data.counts[s] ? ' ' + data.counts[s] : '';
+      });
+
+      const grid     = document.getElementById('card-grid');
+      const emptyMsg = document.getElementById('empty-msg');
+
+      if (isRefresh) {
+        // Smart diff: update existing cards, prepend new ones (on page 1)
+        const seen = new Set();
+        data.submissions.forEach(s => {
+          seen.add(s.id);
+          if (cardMap.has(s.id)) {
+            updateCardStatus(cardMap.get(s.id), s);
+          } else if (currentPage === 1) {
+            const card = buildCard(s);
+            card.classList.add('card-new');
+            grid.insertBefore(card, grid.firstChild);
+            cardMap.set(s.id, card);
+          }
+        });
+      } else {
+        // Full replace for filter/page changes
+        // Remove old cards from map that aren't in this page
+        cardMap.clear();
+        const frag = document.createDocumentFragment();
+        data.submissions.forEach(s => {
+          const card = buildCard(s);
+          cardMap.set(s.id, card);
+          frag.appendChild(card);
+        });
+        // Clear grid content except emptyMsg
+        Array.from(grid.children).forEach(c => { if (c !== emptyMsg) c.remove(); });
+        grid.appendChild(frag);
+      }
+
+      emptyMsg.hidden = data.submissions.length > 0 || cardMap.size > 0;
+
+      // Pagination
+      const pages    = Math.ceil(data.total / PER_PAGE);
+      const pagEl    = document.getElementById('pagination');
+      const info     = document.getElementById('pagination-info');
+      const prevBtn  = document.getElementById('prev-btn');
+      const nextBtn  = document.getElementById('next-btn');
+      pagEl.hidden   = pages <= 1;
+      if (info) info.textContent = `Page ${currentPage} of ${pages}`;
+      if (prevBtn) prevBtn.disabled = currentPage <= 1;
+      if (nextBtn) nextBtn.disabled = currentPage >= pages;
+
+      // Schedule next poll
+      schedulePoll(data.submissions.some(s => isProcessing(s.status)));
+    }
+
+    function schedulePoll(hasProcessing) {
+      clearTimeout(pollTimer);
+      pollTimer = setTimeout(async () => {
+        const data = await loadPage(currentPage, currentStatus, currentSearch);
+        if (data) applyData(data, true);
+      }, hasProcessing ? 5000 : 30000);
+    }
+
+    async function navigate(page, status, search) {
+      currentPage   = page;
+      currentStatus = status !== undefined ? status : currentStatus;
+      currentSearch = search  !== undefined ? search  : currentSearch;
+      const data = await loadPage(currentPage, currentStatus, currentSearch);
+      if (data) {
+        await fadeGrid(() => applyData(data, false));
+      }
+    }
+
+    // ── Filter tabs ────────────────────────────────────────────────────────────
+
+    document.querySelectorAll('.filter-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.filter-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        navigate(1, tab.dataset.status, currentSearch);
+      });
     });
 
-    if (hasProcessing) setTimeout(() => location.reload(), 5000);
+    // ── Search ────────────────────────────────────────────────────────────────
+
+    document.getElementById('search-input').addEventListener('input', e => {
+      clearTimeout(searchDebounce);
+      searchDebounce = setTimeout(() => {
+        navigate(1, currentStatus, e.target.value.trim());
+      }, 300);
+    });
+
+    // ── Pagination ────────────────────────────────────────────────────────────
+
+    document.getElementById('prev-btn').addEventListener('click', () => {
+      if (currentPage > 1) navigate(currentPage - 1);
+    });
+    document.getElementById('next-btn').addEventListener('click', () => {
+      const pages = Math.ceil(currentTotal / PER_PAGE);
+      if (currentPage < pages) navigate(currentPage + 1);
+    });
+
+    // ── Init ──────────────────────────────────────────────────────────────────
+    navigate(1, 'all', '');
   </script>
 </body>
 </html>

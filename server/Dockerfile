@@ -11,7 +11,7 @@ COPY static ./static
 RUN touch src/main.rs && cargo build --release
 
 FROM alpine:3.20
-RUN apk add --no-cache sqlite-libs ca-certificates
+RUN apk add --no-cache sqlite-libs ca-certificates ffmpeg
 WORKDIR /app
 COPY --from=builder /app/target/release/tubemin ./tubemin
 COPY --from=builder /app/migrations ./migrations

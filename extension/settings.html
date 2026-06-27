@@ -23,6 +23,12 @@
       <input type="password" id="api-key" placeholder="Paste API key from Tubemin settings" />
     </div>
 
+    <label class="field-label" for="min-duration">Minimum video duration (minutes)</label>
+    <div class="field-row">
+      <input type="text" id="min-duration" placeholder="0 = capture everything" />
+      <span class="field-hint">HLS only · mp4 always shown</span>
+    </div>
+
     <button id="save-btn" type="button" class="btn-full">Save</button>
     <button id="test-btn" type="button" class="btn-test">Test Connection</button>
     <div id="settings-status"></div>

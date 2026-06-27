@@ -1,7 +1,8 @@
 // extension/settings.js
 
-const serverUrlInput = document.getElementById('server-url');
-const apiKeyInput = document.getElementById('api-key');
+const serverUrlInput  = document.getElementById('server-url');
+const apiKeyInput     = document.getElementById('api-key');
+const minDurationInput = document.getElementById('min-duration');
 const keyDisplay = document.getElementById('key-display');
 const keyInputDiv = document.getElementById('key-input');
 const keyMasked = document.getElementById('key-masked');
@@ -29,11 +30,10 @@ function showInput() {
 }
 
 // Load saved values on open
-chrome.storage.sync.get(['serverUrl', 'apiKey'], (data) => {
+chrome.storage.sync.get(['serverUrl', 'apiKey', 'minDuration'], (data) => {
   if (data.serverUrl) serverUrlInput.value = data.serverUrl;
-  if (data.apiKey) {
-    showMasked(data.apiKey);
-  }
+  if (data.apiKey) showMasked(data.apiKey);
+  if (data.minDuration) minDurationInput.value = data.minDuration;
 });
 
 changeBtn.addEventListener('click', showInput);
@@ -84,7 +84,8 @@ saveBtn.addEventListener('click', () => {
     return;
   }
 
-  const toSave = { serverUrl };
+  const minDuration = parseInt(minDurationInput.value.trim() || '0', 10);
+  const toSave = { serverUrl, minDuration: isNaN(minDuration) ? 0 : minDuration };
 
   // Only update key if a new one was entered
   if (newKey) {

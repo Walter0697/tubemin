@@ -151,6 +151,69 @@ pub async fn list_submissions(pool: &SqlitePool) -> Result<Vec<Submission>, sqlx
     .await?)
 }
 
+#[derive(sqlx::FromRow)]
+struct StatusCount { status: String, count: i64 }
+
+pub async fn list_submissions_paged(
+    pool: &SqlitePool,
+    page: u32,
+    per_page: u32,
+    status: Option<&str>,
+    search: Option<&str>,
+) -> Result<(Vec<Submission>, i64, std::collections::HashMap<String, i64>), sqlx::Error> {
+    let offset = (page.saturating_sub(1)) as i64 * per_page as i64;
+    let like = search.map(|q| format!("%{}%", q));
+
+    let (rows, total) = match (status, like.as_deref()) {
+        (Some(s), Some(q)) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE status = ? AND (title LIKE ? OR url LIKE ?)"
+            ).bind(s).bind(q).bind(q).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE status = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?"
+            ).bind(s).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (Some(s), None) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE status = ?"
+            ).bind(s).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE status = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?"
+            ).bind(s).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (None, Some(q)) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE title LIKE ? OR url LIKE ?"
+            ).bind(q).bind(q).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE title LIKE ? OR url LIKE ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?"
+            ).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (None, None) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions"
+            ).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions ORDER BY submitted_at DESC LIMIT ? OFFSET ?"
+            ).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+    };
+
+    let count_rows = sqlx::query_as::<_, StatusCount>(
+        "SELECT status, COUNT(*) as count FROM submissions GROUP BY status"
+    ).fetch_all(pool).await?;
+    let mut counts: std::collections::HashMap<String, i64> = count_rows
+        .into_iter().map(|r| (r.status, r.count)).collect();
+    let all: i64 = counts.values().sum();
+    counts.insert("all".into(), all);
+
+    Ok((rows, total, counts))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

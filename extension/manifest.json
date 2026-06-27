@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Tubemin",
   "version": "1.0.0",
-  "description": "Send MeTube-supported URLs to your Tubemin server.",
-  "permissions": ["activeTab", "storage"],
+  "description": "Send video URLs to your Tubemin server.",
+  "permissions": ["activeTab", "storage", "webRequest", "tabs", "cookies"],
   "host_permissions": ["<all_urls>"],
   "icons": {
     "16": "icons/icon16.png",
@@ -17,5 +17,13 @@
       "48": "icons/icon48.png"
     }
   },
-  "options_page": "settings.html"
+  "options_page": "settings.html",
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [{
+    "matches": ["<all_urls>"],
+    "js": ["content.js"],
+    "run_at": "document_idle"
+  }]
 }

@@ -304,6 +304,15 @@ static SUPPORTED_DOMAINS: &[&str] = &[
     "zype.com",
 ];
 
+/// Returns true if the URL points directly to a media stream (m3u8/mpd/mp4).
+/// These bypass the yt-dlp domain check — they're already resolved video URLs.
+pub fn is_direct_media_url(url: &str) -> bool {
+    let lower = url.to_lowercase();
+    let path_end = lower.find('?').unwrap_or(lower.len());
+    let path = &lower[..path_end];
+    path.ends_with(".m3u8") || path.ends_with(".mpd") || path.ends_with(".mp4")
+}
+
 /// Returns true if the URL's domain is known to yt-dlp.
 /// Checks from the most-specific suffix down so subdomains (music.youtube.com)
 /// match their root (youtube.com) automatically.

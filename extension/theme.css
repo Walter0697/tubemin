@@ -97,6 +97,101 @@ input::placeholder { color: var(--text-dim); }
   width: 260px;
 }
 
+/* ── Video capture list ─────────────────────────── */
+.video-list-toprow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.video-list-actions {
+  display: flex;
+  gap: 4px;
+}
+.btn-xs {
+  font-size: 9px;
+  padding: 3px 8px;
+  letter-spacing: 0.5px;
+}
+.video-list-header {
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.video-list {
+  max-height: 150px;
+  overflow-y: auto;
+  margin-bottom: 12px;
+}
+.video-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle, #1e1e1e);
+  cursor: pointer;
+}
+.video-item:last-child { border-bottom: none; }
+.video-item.stale { opacity: 0.4; }
+.video-item input[type="checkbox"] {
+  flex-shrink: 0;
+  accent-color: var(--accent);
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  cursor: pointer;
+}
+.video-item-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.video-item input[type="text"].video-item-title {
+  margin-bottom: 0;
+  width: 100%;
+  padding: 0;
+}
+.video-item-title {
+  width: 100%;
+  font-size: 11px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  outline: none;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  cursor: text;
+}
+.video-item-title:focus {
+  border-bottom-color: var(--accent);
+  text-overflow: clip;
+  overflow: visible;
+  white-space: nowrap;
+}
+.video-item-url {
+  font-size: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+}
+.video-item-age {
+  flex-shrink: 0;
+  font-size: 9px;
+  color: var(--text-dim);
+}
+
 .url-box {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -175,6 +270,11 @@ input::placeholder { color: var(--text-dim); }
   font-family: var(--mono);
   font-size: 12px;
   color: var(--text-muted);
+}
+.field-hint {
+  font-size: 9px;
+  color: var(--text-dim);
+  white-space: nowrap;
 }
 .btn-full { width: 100%; padding: 10px; }
 .btn-test {

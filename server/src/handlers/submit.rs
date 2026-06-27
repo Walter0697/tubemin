@@ -13,6 +13,9 @@ use crate::{api_keys, db, metube};
 #[derive(Deserialize)]
 pub struct SubmitRequest {
     pub url: String,
+    pub referer: Option<String>,
+    pub title: Option<String>,
+    pub cookies: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -41,7 +44,9 @@ pub async fn submit(
 
     let _ = api_keys::update_last_used(&state.pool, &key_id).await;
 
-    if !crate::url_validator::is_supported_url(&body.url) {
+    if !crate::url_validator::is_supported_url(&body.url)
+        && !crate::url_validator::is_direct_media_url(&body.url)
+    {
         return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"error": "URL not supported — must be from a site yt-dlp can download"}))).into_response();
     }
 
@@ -54,6 +59,30 @@ pub async fn submit(
             error!(error = %e, "db error creating submission record");
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
         }
+    }
+
+    // For direct media URLs (m3u8/mp4) use our own downloader so we can pass
+    // the Referer header that many CDNs require.
+    if crate::url_validator::is_direct_media_url(&body.url) {
+        let url      = body.url.clone();
+        let referer  = body.referer.clone();
+        let title    = body.title.clone();
+        let cookies  = body.cookies.clone();
+        let pool     = state.pool.clone();
+        let dl_dir   = state.config.downloads_dir.to_string_lossy().to_string();
+        tokio::spawn(async move {
+            if let Err(e) = crate::direct_download::download(
+                &url,
+                referer.as_deref(),
+                title.as_deref(),
+                cookies.as_deref(),
+                &dl_dir,
+            ).await {
+                error!(error = %e, url = %url, "direct download failed");
+                let _ = db::mark_pending_as_error_by_url(&pool, &url).await;
+            }
+        });
+        return (StatusCode::OK, Json(SubmitResponse { status: "queued".into() })).into_response();
     }
 
     if let Err(e) = metube::submit(&state.config.metube_url, &body.url).await {
