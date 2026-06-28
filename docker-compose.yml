@@ -21,8 +21,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - downloads:/downloads
-      - peertube_import:/peertube-import
+      - ./data/downloads:/downloads
+      - ./data/peertube-import:/peertube-import
       - tubemin_data:/data
     depends_on:
       metube:
@@ -34,7 +34,7 @@ services:
     image: ghcr.io/alexta69/metube:latest
     restart: unless-stopped
     volumes:
-      - downloads:/downloads
+      - ./data/downloads:/downloads
     environment:
       DOWNLOAD_DIR: /downloads
       YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true}'
@@ -47,7 +47,7 @@ services:
       - "9000:9000"
     volumes:
       - peertube_data:/data
-      - peertube_import:/peertube-import
+      - ./data/peertube-import:/peertube-import
     depends_on:
       - peertube_db
       - peertube_redis
@@ -75,8 +75,6 @@ services:
       - peertube_redis_data:/data
 
 volumes:
-  downloads:
-  peertube_import:
   tubemin_data:
   caddy_data:
   caddy_config:

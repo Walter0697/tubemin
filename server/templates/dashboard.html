@@ -46,6 +46,16 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="confirm-modal" hidden>
+    <div class="modal-box">
+      <p class="modal-msg" id="modal-msg"></p>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="modal-cancel-btn">Cancel</button>
+        <button class="btn-danger" id="modal-confirm-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js"></script>
   <script>
     const PEERTUBE_BASE = "{{ peertube_base | safe }}";
@@ -182,10 +192,22 @@
       if (el) el.textContent = selectedIds.size + ' selected';
     }
 
-    async function confirmDelete(ids) {
+    function confirmDelete(ids) {
       const n = ids.length;
-      if (!confirm(`Delete ${n} submission${n > 1 ? 's' : ''}? This will also remove the video${n > 1 ? 's' : ''} from PeerTube.`)) return;
-      await doDelete(ids);
+      const modal = document.getElementById('confirm-modal');
+      document.getElementById('modal-msg').textContent =
+        `Delete ${n} submission${n > 1 ? 's' : ''}? This will also remove the video${n > 1 ? 's' : ''} from PeerTube.`;
+      modal.hidden = false;
+      document.getElementById('modal-confirm-btn').onclick = async () => {
+        modal.hidden = true;
+        await doDelete(ids);
+      };
+      document.getElementById('modal-cancel-btn').onclick = () => {
+        modal.hidden = true;
+      };
+      modal.onclick = e => {
+        if (e.target === modal) modal.hidden = true;
+      };
     }
 
     async function doDelete(ids) {
