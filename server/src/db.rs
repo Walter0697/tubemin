@@ -115,6 +115,20 @@ pub async fn mark_downloading(pool: &SqlitePool, url: &str) -> Result<(), sqlx::
     Ok(())
 }
 
+/// Mark a specific submission imported by its URL (for direct downloads where the URL is known).
+pub async fn mark_imported_by_url(pool: &SqlitePool, url: &str, filename: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions SET status = 'imported', filename = ?, updated_at = ? WHERE url = ? AND status IN ('pending', 'downloading')"
+    )
+    .bind(filename)
+    .bind(&now)
+    .bind(url)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     // yt-dlp filenames can't be mapped back to the submitted URL, so we match

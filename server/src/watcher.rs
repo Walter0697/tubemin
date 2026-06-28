@@ -164,7 +164,13 @@ pub(crate) async fn handle_new_file(
         Ok(_) => {
             info!("Moved {} to import dir", filename);
             let _ = std::fs::remove_file(path.with_extension("info.json"));
-            let _ = crate::db::mark_imported(pool, &filename).await;
+            // Skip mark_imported if a direct download already claimed this filename
+            let already: Option<i64> = sqlx::query_scalar(
+                "SELECT 1 FROM submissions WHERE filename = ? AND status = 'imported'"
+            ).bind(&filename).fetch_optional(pool).await.unwrap_or(None);
+            if already.is_none() {
+                let _ = crate::db::mark_imported(pool, &filename).await;
+            }
             Some(dest)
         }
         Err(e) => {

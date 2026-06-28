@@ -3,13 +3,14 @@ use reqwest::Client;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
+/// Download a direct media URL. Returns the filename (not full path) of the completed file.
 pub async fn download(
     url: &str,
     referer: Option<&str>,
     title: Option<&str>,
     cookies: Option<&str>,
     downloads_dir: &str,
-) -> Result<(), anyhow::Error> {
+) -> Result<String, anyhow::Error> {
     let url_path = url.split('?').next().unwrap_or(url);
     let is_hls = url_path.ends_with(".m3u8") || url_path.ends_with(".mpd");
 
@@ -28,10 +29,17 @@ pub async fn download(
     let dest = unique_dest(downloads_dir, &base, ".mp4");
 
     if is_hls {
-        download_hls(url, referer, cookies, &dest).await
+        download_hls(url, referer, cookies, &dest).await?;
     } else {
-        download_direct(url, referer, cookies, &dest).await
+        download_direct(url, referer, cookies, &dest).await?;
     }
+
+    let filename = dest
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("video.mp4")
+        .to_string();
+    Ok(filename)
 }
 
 // ── HLS via ffmpeg ─────────────────────────────────────────────────────────

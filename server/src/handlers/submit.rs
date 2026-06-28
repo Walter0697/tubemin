@@ -72,15 +72,20 @@ pub async fn submit(
         let pool     = state.pool.clone();
         let dl_dir   = state.config.downloads_dir.to_string_lossy().to_string();
         tokio::spawn(async move {
-            if let Err(e) = crate::direct_download::download(
+            match crate::direct_download::download(
                 &url,
                 referer.as_deref(),
                 title.as_deref(),
                 cookies.as_deref(),
                 &dl_dir,
             ).await {
-                error!(error = %e, url = %url, "direct download failed");
-                let _ = db::mark_pending_as_error_by_url(&pool, &url).await;
+                Ok(filename) => {
+                    let _ = db::mark_imported_by_url(&pool, &url, &filename).await;
+                }
+                Err(e) => {
+                    error!(error = %e, url = %url, "direct download failed");
+                    let _ = db::mark_pending_as_error_by_url(&pool, &url).await;
+                }
             }
         });
         return (StatusCode::OK, Json(SubmitResponse { status: "queued".into() })).into_response();
