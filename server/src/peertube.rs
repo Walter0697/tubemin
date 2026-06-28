@@ -190,10 +190,14 @@ struct UploadResponse {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct UploadedVideo {
     uuid: String,
-    preview_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoDetails {
+    preview_path: String,
 }
 
 fn mime_for(path: &Path) -> &'static str {
@@ -335,6 +339,19 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
     let body = resp.text().await?;
     let upload: UploadResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow!("upload response parse error ({e}): {body}"))?;
-    Ok(upload.video.preview_path
-        .unwrap_or_else(|| format!("/lazy-static/previews/{}.jpg", upload.video.uuid)))
+
+    // Fetch the full video record to get the actual previewPath — the upload
+    // response only contains the video UUID, not the preview file's UUID.
+    let details_resp = client
+        .get(format!("{}/api/v1/videos/{}", url, upload.video.uuid))
+        .header("Host", &host)
+        .bearer_auth(&token.access_token)
+        .send().await?;
+    if details_resp.status().is_success() {
+        let details_body = details_resp.text().await?;
+        if let Ok(details) = serde_json::from_str::<VideoDetails>(&details_body) {
+            return Ok(details.preview_path);
+        }
+    }
+    Ok(format!("/lazy-static/previews/{}.jpg", upload.video.uuid))
 }
