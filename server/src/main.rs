@@ -8,6 +8,7 @@ mod oidc;
 mod password_auth;
 mod peertube;
 mod poller;
+mod progress;
 mod state;
 mod url_validator;
 mod video_meta;
@@ -32,10 +33,12 @@ async fn main() -> anyhow::Result<()> {
     let config = config::Config::from_env()?;
     let pool = Arc::new(db::init(&config.database_url).await?);
     let config = Arc::new(config);
+    let progress_map = progress::new_progress_map();
 
     let app_state = state::AppState {
         pool: pool.clone(),
         config: config.clone(),
+        progress: progress_map.clone(),
     };
 
     // Auto-provision PeerTube bot account if admin credentials are provided

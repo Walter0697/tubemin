@@ -29,6 +29,7 @@ pub struct SubmissionRow {
     pub peertube_thumb: Option<String>,
     pub peertube_uuid: Option<String>,
     pub status: String,
+    pub progress: Option<f32>,
     pub submitted_at: String,
     pub updated_at: String,
 }
@@ -54,17 +55,21 @@ pub async fn list_submissions(
 
     match db::list_submissions_paged(&state.pool, page, per_page, status_filter, search).await {
         Ok((rows, total, counts)) => {
-            let submissions = rows.into_iter().map(|s| SubmissionRow {
-                id: s.id,
-                url: s.url,
-                source_url: s.source_url,
-                title: s.title,
-                filename: s.filename,
-                peertube_thumb: s.peertube_thumb,
-                peertube_uuid: s.peertube_uuid,
-                status: s.status,
-                submitted_at: s.submitted_at,
-                updated_at: s.updated_at,
+            let submissions = rows.into_iter().map(|s| {
+                let progress = crate::progress::get(&state.progress, &s.id);
+                SubmissionRow {
+                    id: s.id,
+                    url: s.url,
+                    source_url: s.source_url,
+                    title: s.title,
+                    filename: s.filename,
+                    peertube_thumb: s.peertube_thumb,
+                    peertube_uuid: s.peertube_uuid,
+                    status: s.status,
+                    progress,
+                    submitted_at: s.submitted_at,
+                    updated_at: s.updated_at,
+                }
             }).collect();
             Json(ListResponse { submissions, total, page, per_page, counts }).into_response()
         }

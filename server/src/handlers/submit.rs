@@ -142,7 +142,7 @@ mod tests {
             peertube_admin_password: None,
         });
 
-        let state = AppState { pool: pool.clone(), config };
+        let state = AppState { pool: pool.clone(), config, progress: crate::progress::new_progress_map() };
         let api_key = api_keys::generate(&pool, Some("test")).await.unwrap();
 
         let app = Router::new()
