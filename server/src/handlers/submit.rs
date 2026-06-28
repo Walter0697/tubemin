@@ -66,25 +66,40 @@ pub async fn submit(
     // For direct media URLs (m3u8/mp4) use our own downloader so we can pass
     // the Referer header that many CDNs require.
     if is_direct {
-        let url      = body.url.clone();
-        let referer  = body.referer.clone();
-        let title    = body.title.clone();
-        let cookies  = body.cookies.clone();
-        let pool     = state.pool.clone();
-        let dl_dir   = state.config.downloads_dir.to_string_lossy().to_string();
+        let url       = body.url.clone();
+        let referer   = body.referer.clone();
+        let title     = body.title.clone();
+        let cookies   = body.cookies.clone();
+        let pool      = state.pool.clone();
+        let dl_dir    = state.config.downloads_dir.to_string_lossy().to_string();
+        let prog_map  = state.progress.clone();
+
+        let prog_key: Option<String> = if reused {
+            crate::db::get_submission_by_url(&pool, &url).await
+                .ok().flatten().map(|s| s.id)
+        } else {
+            crate::db::get_submission_by_url(&pool, &url).await
+                .ok().flatten().map(|s| s.id)
+        };
+
         tokio::spawn(async move {
+            if let Some(ref key) = prog_key {
+                crate::progress::set(&prog_map, key, 0.0);
+            }
             match crate::direct_download::download(
                 &url,
                 referer.as_deref(),
                 title.as_deref(),
                 cookies.as_deref(),
                 &dl_dir,
+                prog_key,
+                Some(prog_map),
             ).await {
                 Ok(filename) => {
                     let _ = db::mark_imported_by_url(&pool, &url, &filename).await;
                 }
                 Err(e) => {
-                    error!(error = %e, url = %url, "direct download failed");
+                    tracing::error!(error = %e, url = %url, "direct download failed");
                     let _ = db::mark_pending_as_error_by_url(&pool, &url).await;
                 }
             }

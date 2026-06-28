@@ -10,6 +10,8 @@ pub async fn download(
     title: Option<&str>,
     cookies: Option<&str>,
     downloads_dir: &str,
+    progress_key: Option<String>,
+    progress_map: Option<crate::progress::ProgressMap>,
 ) -> Result<String, anyhow::Error> {
     let url_path = url.split('?').next().unwrap_or(url);
     let is_hls = url_path.ends_with(".m3u8") || url_path.ends_with(".mpd");
@@ -29,7 +31,7 @@ pub async fn download(
     let dest = unique_dest(downloads_dir, &base, ".mp4");
 
     if is_hls {
-        download_hls(url, referer, cookies, &dest).await?;
+        download_hls(url, referer, cookies, &dest, progress_key, progress_map).await?;
     } else {
         download_direct(url, referer, cookies, &dest).await?;
     }
@@ -49,22 +51,23 @@ async fn download_hls(
     referer: Option<&str>,
     cookies: Option<&str>,
     dest: &Path,
+    progress_key: Option<String>,
+    progress_map: Option<crate::progress::ProgressMap>,
 ) -> Result<(), anyhow::Error> {
-    // Build the headers string ffmpeg expects: "Key: Value\r\nKey: Value\r\n"
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use std::process::Stdio;
+    use std::sync::{Arc, Mutex};
+
     let mut headers = String::from(
         "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
     );
-    if let Some(r) = referer {
-        headers.push_str(&format!("Referer: {}\r\n", r));
-    }
-    if let Some(c) = cookies {
-        headers.push_str(&format!("Cookie: {}\r\n", c));
-    }
+    if let Some(r) = referer { headers.push_str(&format!("Referer: {}\r\n", r)); }
+    if let Some(c) = cookies { headers.push_str(&format!("Cookie: {}\r\n", c)); }
 
     let part = dest.with_extension("tmp");
     info!("HLS download (ffmpeg): {} → {}", url, dest.display());
 
-    let status = tokio::process::Command::new("ffmpeg")
+    let mut child = tokio::process::Command::new("ffmpeg")
         .args([
             "-y",
             "-headers", &headers,
@@ -73,17 +76,63 @@ async fn download_hls(
             "-map", "0:a?",
             "-c", "copy",
             "-f", "mp4",
+            "-progress", "pipe:1",
             part.to_str().unwrap_or(""),
         ])
-        .status()
-        .await?;
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr_stream = child.stderr.take().unwrap();
+
+    let total_us: Arc<Mutex<Option<u64>>> = Arc::new(Mutex::new(None));
+    let total_us_stderr = total_us.clone();
+    let total_us_stdout = total_us.clone();
+
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stderr_stream).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if total_us_stderr.lock().map(|g| g.is_none()).unwrap_or(false) {
+                if let Some(dur_str) = line.split("Duration:").nth(1) {
+                    let part = dur_str.trim().split(',').next().unwrap_or("").trim();
+                    if let Some(us) = parse_duration_us(part) {
+                        if let Ok(mut g) = total_us_stderr.lock() { *g = Some(us); }
+                    }
+                }
+            }
+        }
+    });
+
+    let pk = progress_key.clone();
+    let pm = progress_map.clone();
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Some(val) = line.strip_prefix("out_time_us=") {
+                if let (Ok(out_us), Some(key), Some(ref map)) =
+                    (val.trim().parse::<u64>(), pk.as_deref(), pm.as_ref())
+                {
+                    let total = total_us_stdout.lock().ok().and_then(|g| *g).unwrap_or(0);
+                    if total > 0 {
+                        crate::progress::set(map, key, out_us as f32 / total as f32);
+                    }
+                }
+            }
+        }
+    });
+
+    let status = child.wait().await?;
+
+    if let (Some(key), Some(ref map)) = (progress_key.as_deref(), progress_map.as_ref()) {
+        crate::progress::remove(map, key);
+    }
 
     if !status.success() {
         let _ = tokio::fs::remove_file(&part).await;
         return Err(anyhow::anyhow!("ffmpeg exited with status {}", status));
     }
 
-    // Extract thumbnail before rename so the watcher finds it alongside the .mp4
     if let Err(e) = extract_thumbnail(&part, dest).await {
         tracing::warn!("thumbnail extraction failed for {}: {}", dest.display(), e);
     }
@@ -180,6 +229,15 @@ fn unique_dest(dir: &str, base: &str, ext: &str) -> std::path::PathBuf {
     }
 }
 
+fn parse_duration_us(s: &str) -> Option<u64> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() != 3 { return None; }
+    let h: u64 = parts[0].trim().parse().ok()?;
+    let m: u64 = parts[1].trim().parse().ok()?;
+    let sec: f64 = parts[2].trim().parse().ok()?;
+    Some((h * 3600 + m * 60) * 1_000_000 + (sec * 1_000_000.0) as u64)
+}
+
 fn sanitize_name(s: &str) -> String {
     let cleaned: String = s
         .chars()
@@ -202,5 +260,10 @@ mod tests {
         assert_eq!(sanitize_name("  hello  "), "hello");
         assert_eq!(sanitize_name("file/with\\bad:chars"), "file_with_bad_chars");
         assert_eq!(sanitize_name("한국 드라마 EP01"), "한국 드라마 EP01");
+    }
+
+    #[test]
+    fn sanitize_removes_null_byte() {
+        assert_eq!(sanitize_name("hello\0world"), "hello_world");
     }
 }
