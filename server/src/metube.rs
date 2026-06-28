@@ -13,6 +13,7 @@ pub enum MeTubeError {
 pub struct QueueItem {
     pub url: String,
     pub title: Option<String>,
+    pub percent: Option<f64>,
 }
 
 pub struct QueueState {
@@ -33,7 +34,8 @@ fn extract_items(arr: Option<&serde_json::Value>, error_filter: bool) -> Vec<Que
                 }
                 let url = item["url"].as_str()?.to_string();
                 let title = item["title"].as_str().map(str::to_string);
-                Some(QueueItem { url, title })
+                let percent = item["percent"].as_f64();
+                Some(QueueItem { url, title, percent })
             }).collect()
         })
         .unwrap_or_default()
@@ -96,6 +98,23 @@ mod tests {
 
         let result = submit(&server.uri(), "https://example.com/video").await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn parses_percent_from_queue() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/history"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "queue": [{"url": "https://example.com/v", "title": "Test", "percent": 42.5}],
+                "pending": [],
+                "done": []
+            })))
+            .mount(&server)
+            .await;
+
+        let state = get_queue_state(&server.uri()).await.unwrap();
+        assert_eq!(state.active[0].percent, Some(42.5));
     }
 
     #[tokio::test]

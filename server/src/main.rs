@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Poll MeTube queue to transition pending → downloading
-    poller::start(config.metube_url.clone(), pool.clone());
+    poller::start(config.metube_url.clone(), pool.clone(), progress_map.clone());
 
     // Start file watcher
     let pt_config = match (&config.peertube_url, &config.peertube_username, &config.peertube_password) {
