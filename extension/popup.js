@@ -287,6 +287,7 @@ async function handleListQueue() {
         body: JSON.stringify({
           url: item.videoUrl,
           referer: item.pageUrl || null,
+          source_url: item.sourceUrl || null,
           title: item.title || null,
           cookies: item.cookies || null,
         }),

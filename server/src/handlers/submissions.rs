@@ -23,6 +23,7 @@ fn default_per_page() -> u32 { 24 }
 pub struct SubmissionRow {
     pub id: String,
     pub url: String,
+    pub source_url: Option<String>,
     pub title: Option<String>,
     pub filename: Option<String>,
     pub peertube_thumb: Option<String>,
@@ -56,6 +57,7 @@ pub async fn list_submissions(
             let submissions = rows.into_iter().map(|s| SubmissionRow {
                 id: s.id,
                 url: s.url,
+                source_url: s.source_url,
                 title: s.title,
                 filename: s.filename,
                 peertube_thumb: s.peertube_thumb,

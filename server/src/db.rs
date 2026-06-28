@@ -6,6 +6,7 @@ use chrono::Utc;
 pub struct Submission {
     pub id: String,
     pub url: String,
+    pub source_url: Option<String>,
     pub title: Option<String>,
     pub filename: Option<String>,
     pub peertube_thumb: Option<String>,
@@ -22,13 +23,14 @@ pub async fn init(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
-pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str) -> Result<(), sqlx::Error> {
+pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str, source_url: Option<&str>) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "INSERT INTO submissions (id, url, status, submitted_at, updated_at) VALUES (?, ?, 'pending', ?, ?)"
+        "INSERT INTO submissions (id, url, source_url, status, submitted_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?)"
     )
     .bind(id)
     .bind(url)
+    .bind(source_url)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -245,7 +247,7 @@ mod tests {
     #[tokio::test]
     async fn create_and_list_submission() {
         let pool = test_pool().await;
-        create_submission(&pool, "test-id", "https://example.com/video").await.unwrap();
+        create_submission(&pool, "test-id", "https://example.com/video", None).await.unwrap();
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "pending");
@@ -254,7 +256,7 @@ mod tests {
     #[tokio::test]
     async fn mark_imported_updates_status() {
         let pool = test_pool().await;
-        create_submission(&pool, "test-id-2", "https://example.com/video2").await.unwrap();
+        create_submission(&pool, "test-id-2", "https://example.com/video2", None).await.unwrap();
         mark_imported(&pool, "video.mp4").await.unwrap();
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows[0].status, "imported");

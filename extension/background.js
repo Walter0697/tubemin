@@ -143,6 +143,7 @@ async function handleIntercept(details) {
   const entry = {
     videoUrl: details.url,
     pageUrl,
+    sourceUrl: tab.url,
     title,
     cookies,
     capturedAt: Date.now(),

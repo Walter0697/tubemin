@@ -56,6 +56,20 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="detail-modal" hidden>
+    <div class="modal-box detail-modal-box">
+      <div class="detail-modal-thumb" id="detail-modal-thumb">
+        <button class="detail-modal-close" id="detail-close-btn" aria-label="Close">✕</button>
+      </div>
+      <div class="detail-modal-body">
+        <div class="detail-modal-status" id="detail-modal-status"></div>
+        <h2 class="detail-modal-title" id="detail-modal-title"></h2>
+        <div class="detail-modal-rows" id="detail-modal-rows"></div>
+        <div class="detail-modal-actions" id="detail-modal-actions"></div>
+      </div>
+    </div>
+  </div>
+
   <script src="/static/app.js"></script>
   <script>
     const PEERTUBE_BASE = "{{ peertube_base | safe }}";
@@ -69,6 +83,7 @@
     let searchDebounce = null;
     let selectMode    = false;
     const cardMap = new Map();
+    const submissionMap = new Map();
     const selectedIds = new Set();
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -107,9 +122,10 @@
     // ── Card rendering ────────────────────────────────────────────────────────
 
     function buildCard(s) {
+      submissionMap.set(s.id, s);
       const card = document.createElement('a');
       card.className = 'card' + (isProcessing(s.status) ? ' processing' : '') + (selectMode ? ' select-mode' : '');
-      card.href = s.url;
+      card.href = s.source_url || s.url;
       card.target = '_blank';
       card.dataset.id  = s.id;
       card.dataset.url = s.url;
@@ -149,6 +165,9 @@
         if (selectMode) {
           e.preventDefault();
           toggleSelect(s.id, card, cb);
+        } else {
+          e.preventDefault();
+          openDetail(submissionMap.get(s.id) || s);
         }
       });
 
@@ -208,6 +227,108 @@
       modal.onclick = e => {
         if (e.target === modal) modal.hidden = true;
       };
+    }
+
+    function openDetail(s) {
+      const modal  = document.getElementById('detail-modal');
+      const thumb  = document.getElementById('detail-modal-thumb');
+      const status = document.getElementById('detail-modal-status');
+      const title  = document.getElementById('detail-modal-title');
+      const rows   = document.getElementById('detail-modal-rows');
+      const acts   = document.getElementById('detail-modal-actions');
+
+      // Thumbnail
+      const closeBtn = thumb.querySelector('.detail-modal-close');
+      thumb.innerHTML = '';
+      thumb.appendChild(closeBtn);
+      const peertubePath = s.peertube_thumb;
+      if (peertubePath && PEERTUBE_BASE) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.onerror = () => { img.remove(); };
+        img.src = PEERTUBE_BASE + peertubePath;
+        thumb.appendChild(img);
+      } else {
+        const id = ytId(s.url);
+        if (id) {
+          const img = document.createElement('img');
+          img.alt = '';
+          img.onerror = () => { img.remove(); };
+          img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
+          thumb.appendChild(img);
+        }
+      }
+
+      // Status
+      status.innerHTML =
+        '<span class="status-dot status-' + s.status + '"></span>' +
+        '<span>' + s.status + '</span>';
+
+      // Title
+      title.textContent = s.title || siteHost(s.url);
+
+      // Detail rows
+      rows.innerHTML = '';
+      function addRow(label, html) {
+        rows.innerHTML +=
+          '<div class="detail-row">' +
+            '<div class="detail-row-label">' + label + '</div>' +
+            '<div class="detail-row-value">' + html + '</div>' +
+          '</div>';
+      }
+
+      if (s.source_url) {
+        addRow('Source page',
+          '<a href="' + escHtml(s.source_url) + '" target="_blank" rel="noopener">' +
+            escHtml(siteHost(s.source_url)) + ' ↗</a>');
+      }
+
+      addRow('Stream URL',
+        '<div class="detail-url-row">' +
+          '<span class="detail-url-text" title="' + escHtml(s.url) + '">' + escHtml(s.url) + '</span>' +
+          '<button class="btn-secondary detail-copy-btn" data-copy="' + escHtml(s.url) + '">Copy</button>' +
+        '</div>');
+
+      addRow('Submitted', relTime(s.submitted_at) + ' <span style="color:var(--text-dim)">(' + new Date(s.submitted_at).toLocaleString() + ')</span>');
+
+      if (s.updated_at !== s.submitted_at) {
+        addRow('Updated', relTime(s.updated_at) + ' <span style="color:var(--text-dim)">(' + new Date(s.updated_at).toLocaleString() + ')</span>');
+      }
+
+      // Action buttons
+      acts.innerHTML = '';
+      if (s.peertube_uuid && PEERTUBE_BASE) {
+        const ptBtn = document.createElement('a');
+        ptBtn.href = PEERTUBE_BASE + '/videos/watch/' + s.peertube_uuid;
+        ptBtn.target = '_blank';
+        ptBtn.rel = 'noopener';
+        ptBtn.className = 'btn-secondary';
+        ptBtn.style.textDecoration = 'none';
+        ptBtn.textContent = 'Open in PeerTube ↗';
+        acts.appendChild(ptBtn);
+      }
+      if (s.source_url) {
+        const srcBtn = document.createElement('a');
+        srcBtn.href = s.source_url;
+        srcBtn.target = '_blank';
+        srcBtn.rel = 'noopener';
+        srcBtn.className = 'btn-secondary';
+        srcBtn.style.textDecoration = 'none';
+        srcBtn.textContent = 'Open source page ↗';
+        acts.appendChild(srcBtn);
+      }
+
+      modal.hidden = false;
+
+      rows.querySelectorAll('.detail-copy-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          navigator.clipboard.writeText(btn.dataset.copy).then(() => {
+            const orig = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => btn.textContent = orig, 1500);
+          });
+        });
+      });
     }
 
     async function doDelete(ids) {
@@ -276,6 +397,7 @@
         card.dataset.thumb = s.peertube_thumb;
         hydrateCard(card, s);
       }
+      submissionMap.set(s.id, s);
     }
 
     function escHtml(s) {
@@ -335,6 +457,7 @@
         // Full replace for filter/page changes
         // Remove old cards from map that aren't in this page
         cardMap.clear();
+        submissionMap.clear();
         const frag = document.createDocumentFragment();
         data.submissions.forEach(s => {
           const card = buildCard(s);
@@ -426,6 +549,21 @@
     document.getElementById('bulk-delete-btn').addEventListener('click', () => {
       if (selectedIds.size === 0) return;
       confirmDelete([...selectedIds]);
+    });
+
+    // ── Detail modal ──────────────────────────────────────────────────────────
+    document.getElementById('detail-close-btn').addEventListener('click', () => {
+      document.getElementById('detail-modal').hidden = true;
+    });
+    document.getElementById('detail-modal').addEventListener('click', e => {
+      if (e.target === document.getElementById('detail-modal'))
+        document.getElementById('detail-modal').hidden = true;
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        document.getElementById('detail-modal').hidden = true;
+        document.getElementById('confirm-modal').hidden = true;
+      }
     });
 
     // ── Init ──────────────────────────────────────────────────────────────────
