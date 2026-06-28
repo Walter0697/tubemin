@@ -175,7 +175,7 @@ pub async fn mark_error(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::E
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         "UPDATE submissions SET status = 'error', filename = ?, updated_at = ?
-         WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') ORDER BY submitted_at ASC LIMIT 1)"
+         WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') AND is_direct = 0 ORDER BY submitted_at ASC LIMIT 1)"
     )
     .bind(filename)
     .bind(&now)
