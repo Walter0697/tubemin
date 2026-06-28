@@ -277,17 +277,11 @@
           '</div>';
       }
 
-      if (s.source_url) {
-        addRow('Source page',
-          '<a href="' + escHtml(s.source_url) + '" target="_blank" rel="noopener">' +
-            escHtml(siteHost(s.source_url)) + ' ↗</a>');
-      }
-
-      addRow('Stream URL',
-        '<div class="detail-url-row">' +
-          '<span class="detail-url-text" title="' + escHtml(s.url) + '">' + escHtml(s.url) + '</span>' +
-          '<button class="btn-secondary detail-copy-btn" data-copy="' + escHtml(s.url) + '">Copy</button>' +
-        '</div>');
+      // Show source page if we have one, otherwise the submission URL is the real page (MeTube path)
+      const pageLink = s.source_url || s.url;
+      addRow('Source',
+        '<a href="' + escHtml(pageLink) + '" target="_blank" rel="noopener">' +
+          escHtml(pageLink) + ' ↗</a>');
 
       addRow('Submitted', relTime(s.submitted_at) + ' <span style="color:var(--text-dim)">(' + new Date(s.submitted_at).toLocaleString() + ')</span>');
 
@@ -307,16 +301,14 @@
         ptBtn.textContent = 'Open in PeerTube ↗';
         acts.appendChild(ptBtn);
       }
-      if (s.source_url) {
-        const srcBtn = document.createElement('a');
-        srcBtn.href = s.source_url;
-        srcBtn.target = '_blank';
-        srcBtn.rel = 'noopener';
-        srcBtn.className = 'btn-secondary';
-        srcBtn.style.textDecoration = 'none';
-        srcBtn.textContent = 'Open source page ↗';
-        acts.appendChild(srcBtn);
-      }
+      const srcBtn = document.createElement('a');
+      srcBtn.href = pageLink;
+      srcBtn.target = '_blank';
+      srcBtn.rel = 'noopener';
+      srcBtn.className = 'btn-secondary';
+      srcBtn.style.textDecoration = 'none';
+      srcBtn.textContent = 'Open source page ↗';
+      acts.appendChild(srcBtn);
 
       modal.hidden = false;
 
