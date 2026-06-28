@@ -137,7 +137,9 @@
 
       card.innerHTML =
         '<input type="checkbox" class="card-checkbox" aria-label="Select">' +
-        '<div class="card-thumb"></div>' +
+        '<div class="card-thumb">' +
+          '<div class="card-progress" hidden></div>' +
+        '</div>' +
         '<div class="card-body">' +
           '<div class="card-site"></div>' +
           '<div class="card-title">' + (s.title ? escHtml(s.title) : '') + '</div>' +
@@ -263,9 +265,12 @@
       }
 
       // Status
+      const pctLabel = (s.progress != null && isProcessing(s.status))
+        ? ' — ' + Math.round(s.progress * 100) + '%'
+        : '';
       status.innerHTML =
         '<span class="status-dot status-' + s.status + '"></span>' +
-        '<span>' + s.status + '</span>';
+        '<span>' + s.status + escHtml(pctLabel) + '</span>';
 
       // Title
       title.textContent = s.title || siteHost(s.url);
@@ -394,6 +399,29 @@
       }
       card.classList.toggle('processing', proc);
 
+      const bar = card.querySelector('.card-progress');
+      if (bar) {
+        const pct = (s.progress != null) ? s.progress : null;
+        if (pct != null && proc) {
+          bar.hidden = false;
+          bar.style.width = Math.round(pct * 100) + '%';
+          bar.title = Math.round(pct * 100) + '%';
+        } else {
+          bar.hidden = true;
+          bar.style.width = '0%';
+        }
+      }
+
+      const statusLabel = card.querySelector('.card-status');
+      if (statusLabel) {
+        const pct = (s.progress != null && (s.status === 'downloading' || s.status === 'pending'))
+          ? ' ' + Math.round(s.progress * 100) + '%'
+          : '';
+        statusLabel.innerHTML =
+          '<span class="status-dot status-' + s.status + '"></span>' +
+          s.status + escHtml(pct);
+      }
+
       // Pick up thumbnail once imported
       if (s.peertube_thumb && !card.dataset.thumb) {
         card.dataset.thumb = s.peertube_thumb;
@@ -485,15 +513,18 @@
       if (nextBtn) nextBtn.disabled = currentPage >= pages;
 
       // Schedule next poll
-      schedulePoll(data.submissions.some(s => isProcessing(s.status)));
+      schedulePoll(data.submissions);
     }
 
-    function schedulePoll(hasProcessing) {
+    function schedulePoll(submissions) {
       clearTimeout(pollTimer);
+      const hasDownloading = submissions.some(s => s.status === 'pending' || s.status === 'downloading');
+      const hasTranscoding = submissions.some(s => s.status === 'transcoding');
+      const delay = hasDownloading ? 3000 : hasTranscoding ? 15000 : 30000;
       pollTimer = setTimeout(async () => {
         const data = await loadPage(currentPage, currentStatus, currentSearch);
         if (data) applyData(data, true);
-      }, hasProcessing ? 5000 : 30000);
+      }, delay);
     }
 
     async function navigate(page, status, search) {
