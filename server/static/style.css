@@ -189,6 +189,18 @@ input::placeholder { color: var(--text-dim); }
 .status-imported { background: var(--status-ok);  box-shadow: 0 0 6px #4ade8066; }
 .status-pending  { background: var(--text-dim); }
 .status-error    { background: var(--status-err); box-shadow: 0 0 6px #e85d4a66; }
+.status-downloading { background: #60a5fa; box-shadow: 0 0 6px #60a5fa66; animation: pulse-blue 1.4s ease-in-out infinite; }
+.status-transcoding  { background: var(--status-warn); box-shadow: 0 0 6px #e8884a66; animation: pulse-amber 1.4s ease-in-out infinite; }
+.status-complete     { background: #a3e635; box-shadow: 0 0 8px #a3e63566; }
+
+@keyframes pulse-blue {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+@keyframes pulse-amber {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
 
 /* ── New-key banner ─────────────────────────────── */
 .new-key {
