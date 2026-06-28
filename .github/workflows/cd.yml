@@ -8,6 +8,22 @@ jobs:
   ci:
     uses: ./.github/workflows/ci.yml
 
+  release-extension:
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Zip extension
+        run: zip -r tubemin-extension.zip extension -x "*.DS_Store"
+
+      - name: Upload to GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} tubemin-extension.zip
+
   build-and-push:
     needs: ci
     runs-on: ubuntu-latest
