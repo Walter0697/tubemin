@@ -9,6 +9,7 @@ pub struct Submission {
     pub title: Option<String>,
     pub filename: Option<String>,
     pub peertube_thumb: Option<String>,
+    pub peertube_uuid: Option<String>,
     pub status: String,
     pub submitted_at: String,
     pub updated_at: String,
@@ -35,15 +36,34 @@ pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str) -> Result
     Ok(())
 }
 
-pub async fn set_peertube_thumb(pool: &SqlitePool, filename: &str, thumb_path: &str) -> Result<(), sqlx::Error> {
+pub async fn set_peertube_thumb(pool: &SqlitePool, filename: &str, thumb_path: &str, peertube_uuid: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
-    sqlx::query("UPDATE submissions SET peertube_thumb = ?, updated_at = ? WHERE filename = ?")
+    sqlx::query("UPDATE submissions SET peertube_thumb = ?, peertube_uuid = ?, updated_at = ? WHERE filename = ?")
         .bind(thumb_path)
+        .bind(peertube_uuid)
         .bind(&now)
         .bind(filename)
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn delete_submissions(pool: &SqlitePool, ids: &[String]) -> Result<Vec<Option<String>>, sqlx::Error> {
+    let mut uuids = Vec::new();
+    for id in ids {
+        let row: Option<(Option<String>,)> = sqlx::query_as(
+            "SELECT peertube_uuid FROM submissions WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await?;
+        uuids.push(row.and_then(|(u,)| u));
+        sqlx::query("DELETE FROM submissions WHERE id = ?")
+            .bind(id)
+            .execute(pool)
+            .await?;
+    }
+    Ok(uuids)
 }
 
 pub async fn update_submission_title(pool: &SqlitePool, url: &str, title: &str) -> Result<(), sqlx::Error> {

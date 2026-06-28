@@ -200,6 +200,38 @@ struct VideoDetails {
     preview_path: String,
 }
 
+pub async fn delete_video(url: &str, host_override: Option<&str>, username: &str, password: &str, video_uuid: &str) -> Result<()> {
+    let host = host_override.map(|s| s.to_string()).unwrap_or_else(|| derive_host(url));
+    let client = Client::new();
+
+    let resp = client.get(format!("{}/api/v1/oauth-clients/local", url)).header("Host", &host).send().await?;
+    let oauth: OAuthClient = serde_json::from_str(&resp.text().await?)?;
+
+    let resp = client
+        .post(format!("{}/api/v1/users/token", url))
+        .header("Host", &host)
+        .form(&[
+            ("client_id", oauth.client_id.as_str()), ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type", "password"), ("response_type", "code"),
+            ("username", username), ("password", password),
+        ])
+        .send().await?;
+    let token: TokenResponse = serde_json::from_str(&resp.text().await?)?;
+
+    let resp = client
+        .delete(format!("{}/api/v1/videos/{}", url, video_uuid))
+        .header("Host", &host)
+        .bearer_auth(&token.access_token)
+        .send().await?;
+
+    if !resp.status().is_success() && resp.status().as_u16() != 404 {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("PeerTube delete failed ({}): {}", status, body));
+    }
+    Ok(())
+}
+
 fn mime_for(path: &Path) -> &'static str {
     match path.extension().and_then(|e| e.to_str()) {
         Some("mp4") => "video/mp4",
@@ -224,7 +256,7 @@ fn derive_host(url: &str) -> String {
 }
 
 /// Upload a video to PeerTube. Returns the `/lazy-static/previews/{uuid}.jpg` path on success.
-pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path, meta: &crate::video_meta::VideoMeta, thumbnail: Option<(Vec<u8>, &str)>) -> Result<String> {
+pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path, meta: &crate::video_meta::VideoMeta, thumbnail: Option<(Vec<u8>, &str)>) -> Result<(String, String)> {
     // PeerTube validates Host against PEERTUBE_WEBSERVER_HOSTNAME (its public hostname).
     // When Tubemin connects via Docker-internal URL (peertube:9000) we must send the
     // public hostname (localhost:9000) in the Host header. PEERTUBE_HOST provides this.
@@ -350,8 +382,8 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
     if details_resp.status().is_success() {
         let details_body = details_resp.text().await?;
         if let Ok(details) = serde_json::from_str::<VideoDetails>(&details_body) {
-            return Ok(details.preview_path);
+            return Ok((details.preview_path, upload.video.uuid));
         }
     }
-    Ok(format!("/lazy-static/previews/{}.jpg", upload.video.uuid))
+    Ok((format!("/lazy-static/previews/{}.jpg", upload.video.uuid), upload.video.uuid))
 }

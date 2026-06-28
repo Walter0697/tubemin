@@ -1,5 +1,6 @@
 use axum::{
     extract::{Query, State},
+    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -25,6 +26,7 @@ pub struct SubmissionRow {
     pub title: Option<String>,
     pub filename: Option<String>,
     pub peertube_thumb: Option<String>,
+    pub peertube_uuid: Option<String>,
     pub status: String,
     pub submitted_at: String,
     pub updated_at: String,
@@ -57,6 +59,7 @@ pub async fn list_submissions(
                 title: s.title,
                 filename: s.filename,
                 peertube_thumb: s.peertube_thumb,
+                peertube_uuid: s.peertube_uuid,
                 status: s.status,
                 submitted_at: s.submitted_at,
                 updated_at: s.updated_at,
@@ -65,7 +68,51 @@ pub async fn list_submissions(
         }
         Err(e) => {
             tracing::error!("DB error listing submissions: {e}");
-            (axum::http::StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
+            (StatusCode::INTERNAL_SERVER_ERROR, "db error").into_response()
         }
     }
+}
+
+#[derive(Deserialize)]
+pub struct DeleteRequest {
+    pub ids: Vec<String>,
+}
+
+pub async fn delete_submissions(
+    RequireAuth(_user): RequireAuth,
+    State(state): State<AppState>,
+    Json(body): Json<DeleteRequest>,
+) -> impl IntoResponse {
+    if body.ids.is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "no ids provided"}))).into_response();
+    }
+
+    let uuids = match db::delete_submissions(&state.pool, &body.ids).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("DB error deleting submissions: {e}");
+            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db error"}))).into_response();
+        }
+    };
+
+    // Best-effort delete from PeerTube; failures are logged but don't block the response
+    if let (Some(pt_url), Some(pt_user), Some(pt_pass)) = (
+        &state.config.peertube_url,
+        &state.config.peertube_username,
+        &state.config.peertube_password,
+    ) {
+        for uuid in uuids.into_iter().flatten() {
+            let url = pt_url.clone();
+            let host = state.config.peertube_host.clone();
+            let user = pt_user.clone();
+            let pass = pt_pass.clone();
+            tokio::spawn(async move {
+                if let Err(e) = crate::peertube::delete_video(&url, host.as_deref(), &user, &pass, &uuid).await {
+                    tracing::warn!("PeerTube delete failed for {}: {}", uuid, e);
+                }
+            });
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"deleted": body.ids.len()}))).into_response()
 }

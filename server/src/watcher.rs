@@ -108,10 +108,10 @@ pub fn start(
             if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
                 let thumb_arg = thumbnail.as_ref().map(|(b, m)| (b.clone(), m.as_str()));
                 match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta, thumb_arg).await {
-                    Ok(preview_path) => {
+                    Ok((preview_path, peertube_uuid)) => {
                         info!("Uploaded {} to PeerTube", dest.display());
                         let filename = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        if let Err(e) = crate::db::set_peertube_thumb(&pool, filename, &preview_path).await {
+                        if let Err(e) = crate::db::set_peertube_thumb(&pool, filename, &preview_path, &peertube_uuid).await {
                             error!("db error storing peertube thumb for {}: {}", filename, e);
                         }
                     }

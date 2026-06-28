@@ -28,6 +28,13 @@
       <input type="text" id="search-input" class="search-input" placeholder="Search titles or URLs…">
     </div>
 
+    <div class="bulk-toolbar" id="bulk-toolbar" hidden>
+      <span class="bulk-count" id="bulk-count">0 selected</span>
+      <button class="btn-secondary" id="bulk-select-all-btn">Select all</button>
+      <button class="btn-danger" id="bulk-delete-btn">Delete selected</button>
+      <button class="btn-secondary" id="bulk-cancel-btn">Cancel</button>
+    </div>
+
     <div class="card-grid" id="card-grid">
       <p class="empty-msg" id="empty-msg" hidden>No submissions yet.</p>
     </div>
@@ -50,8 +57,9 @@
     let currentTotal  = 0;
     let pollTimer     = null;
     let searchDebounce = null;
-    // id → card element, for in-place status updates
+    let selectMode    = false;
     const cardMap = new Map();
+    const selectedIds = new Set();
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -90,7 +98,7 @@
 
     function buildCard(s) {
       const card = document.createElement('a');
-      card.className = 'card' + (isProcessing(s.status) ? ' processing' : '');
+      card.className = 'card' + (isProcessing(s.status) ? ' processing' : '') + (selectMode ? ' select-mode' : '');
       card.href = s.url;
       card.target = '_blank';
       card.dataset.id  = s.id;
@@ -99,6 +107,7 @@
       if (s.peertube_thumb) card.dataset.thumb = s.peertube_thumb;
 
       card.innerHTML =
+        '<input type="checkbox" class="card-checkbox" aria-label="Select">' +
         '<div class="card-thumb"></div>' +
         '<div class="card-body">' +
           '<div class="card-site"></div>' +
@@ -110,10 +119,91 @@
             '</span>' +
             '<span class="card-time">' + relTime(s.submitted_at) + '</span>' +
           '</div>' +
-        '</div>';
+        '</div>' +
+        '<button class="card-delete-btn" title="Delete" aria-label="Delete">🗑</button>';
+
+      const cb = card.querySelector('.card-checkbox');
+      cb.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        if (!selectMode) enterSelectMode();
+        toggleSelect(s.id, card, cb);
+      });
+
+      const delBtn = card.querySelector('.card-delete-btn');
+      delBtn.addEventListener('click', e => {
+        e.preventDefault(); e.stopPropagation();
+        confirmDelete([s.id]);
+      });
+
+      card.addEventListener('click', e => {
+        if (selectMode) {
+          e.preventDefault();
+          toggleSelect(s.id, card, cb);
+        }
+      });
 
       hydrateCard(card, s);
       return card;
+    }
+
+    function enterSelectMode() {
+      selectMode = true;
+      document.querySelectorAll('.card').forEach(c => c.classList.add('select-mode'));
+      document.getElementById('bulk-toolbar').hidden = false;
+    }
+
+    function exitSelectMode() {
+      selectMode = false;
+      selectedIds.clear();
+      document.querySelectorAll('.card').forEach(c => {
+        c.classList.remove('select-mode', 'card-selected');
+        const cb = c.querySelector('.card-checkbox');
+        if (cb) cb.checked = false;
+      });
+      document.getElementById('bulk-toolbar').hidden = true;
+      updateBulkCount();
+    }
+
+    function toggleSelect(id, card, cb) {
+      if (selectedIds.has(id)) {
+        selectedIds.delete(id);
+        card.classList.remove('card-selected');
+        cb.checked = false;
+      } else {
+        selectedIds.add(id);
+        card.classList.add('card-selected');
+        cb.checked = true;
+      }
+      updateBulkCount();
+    }
+
+    function updateBulkCount() {
+      const el = document.getElementById('bulk-count');
+      if (el) el.textContent = selectedIds.size + ' selected';
+    }
+
+    async function confirmDelete(ids) {
+      const n = ids.length;
+      if (!confirm(`Delete ${n} submission${n > 1 ? 's' : ''}? This will also remove the video${n > 1 ? 's' : ''} from PeerTube.`)) return;
+      await doDelete(ids);
+    }
+
+    async function doDelete(ids) {
+      const res = await fetch('/api/submissions/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      if (!res.ok) { alert('Delete failed'); return; }
+      ids.forEach(id => {
+        const card = cardMap.get(id);
+        if (card) card.remove();
+        cardMap.delete(id);
+      });
+      exitSelectMode();
+      // Reload to update counts and pagination
+      const data = await loadPage(currentPage, currentStatus, currentSearch);
+      if (data) applyData(data, false);
     }
 
     function hydrateCard(card, s) {
@@ -296,6 +386,24 @@
     document.getElementById('next-btn').addEventListener('click', () => {
       const pages = Math.ceil(currentTotal / PER_PAGE);
       if (currentPage < pages) navigate(currentPage + 1);
+    });
+
+    // ── Bulk toolbar ──────────────────────────────────────────────────────────
+    document.getElementById('bulk-cancel-btn').addEventListener('click', exitSelectMode);
+
+    document.getElementById('bulk-select-all-btn').addEventListener('click', () => {
+      cardMap.forEach((card, id) => {
+        const cb = card.querySelector('.card-checkbox');
+        selectedIds.add(id);
+        card.classList.add('card-selected');
+        if (cb) cb.checked = true;
+      });
+      updateBulkCount();
+    });
+
+    document.getElementById('bulk-delete-btn').addEventListener('click', () => {
+      if (selectedIds.size === 0) return;
+      confirmDelete([...selectedIds]);
     });
 
     // ── Init ──────────────────────────────────────────────────────────────────
