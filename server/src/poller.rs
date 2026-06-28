@@ -57,6 +57,18 @@ pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) -
                         }
                     }
 
+                    // Also keep progress entries for in-flight direct downloads (not in MeTube queue)
+                    match sqlx::query_as::<_, (String,)>(
+                        "SELECT id FROM submissions WHERE status IN ('pending', 'downloading') AND is_direct = 1"
+                    )
+                    .fetch_all(pool.as_ref())
+                    .await {
+                        Ok(rows) => {
+                            for (id,) in rows { active_sub_ids.insert(id); }
+                        }
+                        Err(e) => error!(error = %e, "poller: db error fetching direct downloads for progress retain"),
+                    }
+
                     // Prune progress entries for downloads that have left the active set
                     // (i.e., completed successfully — errored items are already cleaned above)
                     if let Ok(mut map) = progress.lock() {
