@@ -100,6 +100,23 @@ function isSegmentUrl(url) {
   return false;
 }
 
+// ── Badge ─────────────────────────────────────────────────────────────────
+
+async function updateBadge(tabId, hostname) {
+  if (tabId < 0) return;
+  const list = await getDomainList(hostname);
+  const count = list.length;
+  chrome.action.setBadgeText({ text: count > 0 ? String(count) : '', tabId });
+  if (count > 0) chrome.action.setBadgeBackgroundColor({ color: '#ef4444', tabId });
+}
+
+// Clear badge when the user navigates away from a page
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading' && changeInfo.url) {
+    chrome.action.setBadgeText({ text: '', tabId });
+  }
+});
+
 // ── Intercept handler ─────────────────────────────────────────────────────
 
 chrome.webRequest.onBeforeRequest.addListener(
@@ -159,6 +176,7 @@ async function handleIntercept(details) {
   const deduped = list.filter(v => pathKey(v.videoUrl) !== pathKey(entry.videoUrl));
   deduped.push(entry);
   await setDomainList(hostname, deduped);
+  updateBadge(details.tabId, hostname);
 
   // Async: analyse the m3u8 manifest for duration and master/variant status,
   // then prune: keep master playlists, drop variants when a master exists.
@@ -169,6 +187,7 @@ async function handleIntercept(details) {
     if (isSubtitle) {
       const current = await getDomainList(hostname);
       await setDomainList(hostname, current.filter(v => pathKey(v.videoUrl) !== pathKey(entry.videoUrl)));
+      updateBadge(details.tabId, hostname);
       return;
     }
 
@@ -191,6 +210,7 @@ async function handleIntercept(details) {
       final = current;
     }
     await setDomainList(hostname, final);
+    updateBadge(details.tabId, hostname);
   }
 }
 
@@ -221,5 +241,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, reply) => {
   if (msg.type === 'getVideos') {
     getDomainList(msg.hostname).then(list => reply({ list }));
     return true;
+  }
+  if (msg.type === 'clearBadge') {
+    chrome.action.setBadgeText({ text: '', tabId: msg.tabId });
   }
 });

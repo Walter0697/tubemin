@@ -304,6 +304,7 @@ async function handleListQueue() {
     statusEl.className = '';
     statusEl.textContent = '';
     setHint('');
+    if (currentTabId) chrome.runtime.sendMessage({ type: 'clearBadge', tabId: currentTabId });
   } else {
     statusEl.className = 'error';
     statusEl.textContent = `${succeeded} queued, ${failed} failed.`;
@@ -330,6 +331,7 @@ async function handleUrlQueue() {
       setHint('');
       statusEl.className = '';
       statusEl.textContent = '';
+      if (currentTabId) chrome.runtime.sendMessage({ type: 'clearBadge', tabId: currentTabId });
     } else if (resp.status === 401) {
       statusEl.className = 'error';
       statusEl.textContent = 'Invalid API key. Check Settings.';
