@@ -10,6 +10,7 @@ mod peertube;
 mod poller;
 mod progress;
 mod state;
+mod transcoding_poller;
 mod url_validator;
 mod video_meta;
 mod watcher;
@@ -80,6 +81,20 @@ async fn main() -> anyhow::Result<()> {
         pool.clone(),
         pt_config,
     );
+
+    if let (Some(pt_url), Some(pt_user), Some(pt_pass)) = (
+        &config.peertube_url,
+        &config.peertube_username,
+        &config.peertube_password,
+    ) {
+        transcoding_poller::start(
+            pool.clone(),
+            pt_url.clone(),
+            config.peertube_host.clone(),
+            pt_user.clone(),
+            pt_pass.clone(),
+        );
+    }
 
     // Session layer
     let session_store = MemoryStore::default();
