@@ -53,10 +53,11 @@ pub async fn submit(
 
     // Write the DB row before submitting to MeTube so the watcher always finds
     // a matching row, even when a fast download completes before this handler returns.
+    let is_direct = crate::url_validator::is_direct_media_url(&body.url);
     let reused = db::reset_submission_to_pending(&state.pool, &body.url).await.unwrap_or(false);
     if !reused {
         let id = Uuid::new_v4().to_string();
-        if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref()).await {
+        if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref(), is_direct).await {
             error!(error = %e, "db error creating submission record");
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
         }
@@ -64,7 +65,7 @@ pub async fn submit(
 
     // For direct media URLs (m3u8/mp4) use our own downloader so we can pass
     // the Referer header that many CDNs require.
-    if crate::url_validator::is_direct_media_url(&body.url) {
+    if is_direct {
         let url      = body.url.clone();
         let referer  = body.referer.clone();
         let title    = body.title.clone();
