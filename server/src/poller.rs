@@ -17,18 +17,20 @@ pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) -
                         .map(|i| i.url.clone())
                         .collect();
 
+                    let mut active_sub_ids: HashSet<String> = HashSet::new();
                     for item in &state.active {
                         if let Err(e) = crate::db::mark_downloading(&pool, &item.url).await {
                             error!(error = %e, url = %item.url, "db error marking as downloading");
                         }
-                        if let Some(pct) = item.percent {
-                            match crate::db::get_submission_by_url(&pool, &item.url).await {
-                                Ok(Some(sub)) => {
+                        match crate::db::get_submission_by_url(&pool, &item.url).await {
+                            Ok(Some(sub)) => {
+                                active_sub_ids.insert(sub.id.clone());
+                                if let Some(pct) = item.percent {
                                     crate::progress::set(&progress, &sub.id, (pct / 100.0) as f32);
                                 }
-                                Ok(None) => {}
-                                Err(e) => error!(error = %e, url = %item.url, "db error fetching sub for progress"),
                             }
+                            Ok(None) => {}
+                            Err(e) => error!(error = %e, url = %item.url, "db error fetching sub for progress"),
                         }
                     }
 
@@ -53,6 +55,12 @@ pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) -
                                 error!(error = %e, url = %item.url, "db error updating title");
                             }
                         }
+                    }
+
+                    // Prune progress entries for downloads that have left the active set
+                    // (i.e., completed successfully — errored items are already cleaned above)
+                    if let Ok(mut map) = progress.lock() {
+                        map.retain(|id, _| active_sub_ids.contains(id));
                     }
                 }
                 Err(e) => {

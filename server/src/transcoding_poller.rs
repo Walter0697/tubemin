@@ -39,6 +39,13 @@ pub fn start(
                             } else {
                                 info!(sub_id = %sub_id, uuid = %uuid, "video transcoding complete");
                             }
+                        } else if state_id == 7 {
+                            // PeerTube state 7 = Transcoding failed — mark as error so it exits the poll set
+                            if let Err(e) = crate::db::mark_error_by_uuid(&pool, &uuid).await {
+                                error!(error = %e, uuid = %uuid, "transcoding poller: mark_error_by_uuid error");
+                            } else {
+                                warn!(sub_id = %sub_id, uuid = %uuid, "PeerTube transcoding failed (state 7)");
+                            }
                         } else {
                             if let Err(e) = crate::db::mark_transcoding(&pool, &uuid).await {
                                 error!(error = %e, uuid = %uuid, "transcoding poller: mark_transcoding error");

@@ -171,6 +171,18 @@ pub async fn mark_complete(pool: &SqlitePool, peertube_uuid: &str) -> Result<(),
     Ok(())
 }
 
+pub async fn mark_error_by_uuid(pool: &SqlitePool, peertube_uuid: &str) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions SET status = 'error', updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'transcoding')"
+    )
+    .bind(&now)
+    .bind(peertube_uuid)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn mark_error(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(

@@ -265,7 +265,7 @@
       }
 
       // Status
-      const pctLabel = (s.progress != null && isProcessing(s.status))
+      const pctLabel = (s.progress != null && (s.status === 'downloading' || s.status === 'pending'))
         ? ' — ' + Math.round(s.progress * 100) + '%'
         : '';
       status.innerHTML =
@@ -402,7 +402,7 @@
       const bar = card.querySelector('.card-progress');
       if (bar) {
         const pct = (s.progress != null) ? s.progress : null;
-        if (pct != null && proc) {
+        if (pct != null && (s.status === 'downloading' || s.status === 'pending')) {
           bar.hidden = false;
           bar.style.width = Math.round(pct * 100) + '%';
           bar.title = Math.round(pct * 100) + '%';
