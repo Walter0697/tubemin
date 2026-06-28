@@ -476,16 +476,30 @@ a.card.processing .card-thumb::after {
 a.card { position: relative; }
 
 .card-checkbox {
+  -webkit-appearance: none;
+  appearance: none;
   display: none;
   position: absolute;
   top: 8px;
   left: 8px;
   z-index: 2;
-  width: 16px;
-  height: 16px;
-  accent-color: var(--accent);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid rgba(255,255,255,0.45);
+  background-color: rgba(0,0,0,0.45);
   cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s;
 }
+.card-checkbox.is-checked {
+  background-color: var(--accent);
+  border-color: var(--accent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 10'%3E%3Cpolyline points='1,5 4,9 11,1' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 11px 9px;
+}
+a.card:hover .card-checkbox,
 a.card.select-mode .card-checkbox { display: block; }
 
 .card-delete-btn {
@@ -666,4 +680,53 @@ a.card.card-selected {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.detail-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 16px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: none;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+  border: 1.5px solid transparent;
+}
+.detail-btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.detail-btn-primary:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  text-decoration: none;
+  color: #fff;
+}
+.detail-btn-secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+.detail-btn-secondary:hover {
+  background: var(--surface);
+  border-color: var(--text-dim);
+  color: var(--text);
+  text-decoration: none;
+}
+.detail-btn-danger {
+  background: var(--surface-2);
+  color: var(--status-err);
+  border-color: var(--border);
+  margin-left: auto;
+}
+.detail-btn-danger:hover {
+  background: var(--status-err);
+  border-color: var(--status-err);
+  color: #fff;
+  text-decoration: none;
 }

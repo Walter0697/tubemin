@@ -187,7 +187,7 @@
       document.querySelectorAll('.card').forEach(c => {
         c.classList.remove('select-mode', 'card-selected');
         const cb = c.querySelector('.card-checkbox');
-        if (cb) cb.checked = false;
+        if (cb) cb.classList.remove('is-checked');
       });
       document.getElementById('bulk-toolbar').hidden = true;
       updateBulkCount();
@@ -197,11 +197,11 @@
       if (selectedIds.has(id)) {
         selectedIds.delete(id);
         card.classList.remove('card-selected');
-        cb.checked = false;
+        cb.classList.remove('is-checked');
       } else {
         selectedIds.add(id);
         card.classList.add('card-selected');
-        cb.checked = true;
+        cb.classList.add('is-checked');
       }
       updateBulkCount();
     }
@@ -296,19 +296,26 @@
         ptBtn.href = PEERTUBE_BASE + '/videos/watch/' + s.peertube_uuid;
         ptBtn.target = '_blank';
         ptBtn.rel = 'noopener';
-        ptBtn.className = 'btn-secondary';
-        ptBtn.style.textDecoration = 'none';
-        ptBtn.textContent = 'Open in PeerTube ↗';
+        ptBtn.className = 'detail-btn detail-btn-primary';
+        ptBtn.innerHTML = '▶ Watch on PeerTube';
         acts.appendChild(ptBtn);
       }
       const srcBtn = document.createElement('a');
       srcBtn.href = pageLink;
       srcBtn.target = '_blank';
       srcBtn.rel = 'noopener';
-      srcBtn.className = 'btn-secondary';
-      srcBtn.style.textDecoration = 'none';
-      srcBtn.textContent = 'Open source page ↗';
+      srcBtn.className = 'detail-btn detail-btn-secondary';
+      srcBtn.innerHTML = '↗ Source page';
       acts.appendChild(srcBtn);
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'detail-btn detail-btn-danger';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', () => {
+        document.getElementById('detail-modal').hidden = true;
+        confirmDelete([s.id]);
+      });
+      acts.appendChild(delBtn);
 
       modal.hidden = false;
 
@@ -533,7 +540,7 @@
         const cb = card.querySelector('.card-checkbox');
         selectedIds.add(id);
         card.classList.add('card-selected');
-        if (cb) cb.checked = true;
+        if (cb) cb.classList.add('is-checked');
       });
       updateBulkCount();
     });

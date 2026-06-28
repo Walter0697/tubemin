@@ -119,9 +119,11 @@ async function handleIntercept(details) {
   // details.documentUrl != the page the user is actually looking at.
   let hostname = null;
   let title = null;
+  let tabUrl = '';
   try {
     const tab = await chrome.tabs.get(details.tabId);
     hostname = new URL(tab.url).hostname;
+    tabUrl = tab.url;
     title = tab.title?.trim() || null;
   } catch { return; }
 
@@ -143,7 +145,7 @@ async function handleIntercept(details) {
   const entry = {
     videoUrl: details.url,
     pageUrl,
-    sourceUrl: tab.url,
+    sourceUrl: tabUrl,
     title,
     cookies,
     capturedAt: Date.now(),
