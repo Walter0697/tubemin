@@ -29,7 +29,7 @@ fn extract_items(arr: Option<&serde_json::Value>, error_filter: bool) -> Vec<Que
     arr.and_then(|v| v.as_array())
         .map(|items| {
             items.iter().filter_map(|item| {
-                if error_filter && item["error"].is_null() {
+                if error_filter && item["status"].as_str() != Some("error") {
                     return None;
                 }
                 let url = item["url"].as_str()?.to_string();
@@ -56,7 +56,7 @@ pub async fn get_queue_state(metube_url: &str) -> Result<QueueState, MeTubeError
     Ok(QueueState {
         active:  extract_items(data.get("queue"),   false),
         pending: extract_items(data.get("pending"), false),
-        errored: extract_items(data.get("done"),    true),
+        errored: extract_items(data.get("done"),    true),  // true = filter to error status only
     })
 }
 

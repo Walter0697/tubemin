@@ -219,7 +219,7 @@ input::placeholder { color: var(--text-dim); }
   margin-top: 10px;
   align-items: center;
 }
-.new-key-input {
+.new-key-row .new-key-input {
   flex: 1;
   font-family: var(--mono);
   font-size: 12px;
@@ -439,18 +439,20 @@ a.card.processing .card-thumb::after {
   animation: shimmer 1.8s ease-in-out infinite;
 }
 
+.card-progress-track {
+  height: 3px;
+  background: var(--surface-2);
+  width: 100%;
+}
 .card-progress {
-  position: absolute;
-  bottom: 0;
-  left: 0;
   height: 3px;
   background: var(--accent);
   width: 0%;
+  max-width: 100%;
   transition: width 0.4s ease;
-  z-index: 3;
   border-radius: 0 2px 2px 0;
 }
-.card-progress[hidden] { display: none; }
+.card-progress-track[hidden] { display: none; }
 
 /* Card body */
 .card-body { padding: 10px 12px 12px; }

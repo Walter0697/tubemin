@@ -18,7 +18,7 @@ pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) -
                         .collect();
 
                     let mut active_sub_ids: HashSet<String> = HashSet::new();
-                    for item in &state.active {
+                    for item in state.active.iter().chain(state.pending.iter()) {
                         if let Err(e) = crate::db::mark_downloading(&pool, &item.url).await {
                             error!(error = %e, url = %item.url, "db error marking as downloading");
                         }

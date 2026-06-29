@@ -24,14 +24,15 @@ pub async fn init(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     Ok(pool)
 }
 
-pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str, source_url: Option<&str>, is_direct: bool) -> Result<(), sqlx::Error> {
+pub async fn create_submission(pool: &SqlitePool, id: &str, url: &str, source_url: Option<&str>, is_direct: bool, title: Option<&str>) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "INSERT INTO submissions (id, url, source_url, status, is_direct, submitted_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?)"
+        "INSERT INTO submissions (id, url, source_url, title, status, is_direct, submitted_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)"
     )
     .bind(id)
     .bind(url)
     .bind(source_url)
+    .bind(title)
     .bind(is_direct)
     .bind(&now)
     .bind(&now)
@@ -141,6 +142,25 @@ pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx
          WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') AND is_direct = 0 ORDER BY submitted_at ASC LIMIT 1)"
     )
     .bind(filename)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// On startup: direct downloads in 'downloading' had their ffmpeg process killed — mark as error.
+/// MeTube downloads in 'downloading' are reset to 'pending' so the poller can re-detect them.
+pub async fn reset_interrupted_downloads(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions SET status = 'error', updated_at = ? WHERE status = 'downloading' AND is_direct = 1"
+    )
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "UPDATE submissions SET status = 'pending', updated_at = ? WHERE status = 'downloading' AND is_direct = 0"
+    )
     .bind(&now)
     .execute(pool)
     .await?;
@@ -300,7 +320,7 @@ mod tests {
     #[tokio::test]
     async fn create_and_list_submission() {
         let pool = test_pool().await;
-        create_submission(&pool, "test-id", "https://example.com/video", None, false).await.unwrap();
+        create_submission(&pool, "test-id", "https://example.com/video", None, false, None).await.unwrap();
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "pending");
@@ -309,7 +329,7 @@ mod tests {
     #[tokio::test]
     async fn mark_imported_updates_status() {
         let pool = test_pool().await;
-        create_submission(&pool, "test-id-2", "https://example.com/video2", None, false).await.unwrap();
+        create_submission(&pool, "test-id-2", "https://example.com/video2", None, false, None).await.unwrap();
         mark_imported(&pool, "video.mp4").await.unwrap();
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows[0].status, "imported");
@@ -319,7 +339,7 @@ mod tests {
     #[tokio::test]
     async fn mark_transcoding_transitions_imported() {
         let pool = test_pool().await;
-        create_submission(&pool, "t1", "https://example.com/v", None, false).await.unwrap();
+        create_submission(&pool, "t1", "https://example.com/v", None, false, None).await.unwrap();
         // Simulate imported with a peertube_uuid
         sqlx::query("UPDATE submissions SET status='imported', peertube_uuid='uuid-abc' WHERE id='t1'")
             .execute(&pool).await.unwrap();
@@ -331,7 +351,7 @@ mod tests {
     #[tokio::test]
     async fn mark_complete_transitions_transcoding() {
         let pool = test_pool().await;
-        create_submission(&pool, "t2", "https://example.com/v2", None, false).await.unwrap();
+        create_submission(&pool, "t2", "https://example.com/v2", None, false, None).await.unwrap();
         sqlx::query("UPDATE submissions SET status='transcoding', peertube_uuid='uuid-xyz' WHERE id='t2'")
             .execute(&pool).await.unwrap();
         mark_complete(&pool, "uuid-xyz").await.unwrap();
@@ -343,8 +363,8 @@ mod tests {
     async fn mark_imported_skips_direct_downloads() {
         let pool = test_pool().await;
         // Direct download submitted first (older), MeTube submission second
-        create_submission(&pool, "direct-id", "https://cdn.example.com/video.m3u8", None, true).await.unwrap();
-        create_submission(&pool, "metube-id", "https://www.youtube.com/watch?v=abc", None, false).await.unwrap();
+        create_submission(&pool, "direct-id", "https://cdn.example.com/video.m3u8", None, true, None).await.unwrap();
+        create_submission(&pool, "metube-id", "https://www.youtube.com/watch?v=abc", None, false, None).await.unwrap();
 
         // MeTube download completes — mark_imported must NOT grab the direct row
         mark_imported(&pool, "youtube_video.mp4").await.unwrap();

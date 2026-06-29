@@ -137,9 +137,7 @@
 
       card.innerHTML =
         '<input type="checkbox" class="card-checkbox" aria-label="Select">' +
-        '<div class="card-thumb">' +
-          '<div class="card-progress" hidden></div>' +
-        '</div>' +
+        '<div class="card-thumb"></div>' +
         '<div class="card-body">' +
           '<div class="card-site"></div>' +
           '<div class="card-title">' + (s.title ? escHtml(s.title) : '') + '</div>' +
@@ -151,6 +149,7 @@
             '<span class="card-time">' + relTime(s.submitted_at) + '</span>' +
           '</div>' +
         '</div>' +
+        '<div class="card-progress-track" hidden><div class="card-progress"></div></div>' +
         '<button class="card-delete-btn" title="Delete" aria-label="Delete">🗑</button>';
 
       const cb = card.querySelector('.card-checkbox');
@@ -394,20 +393,21 @@
         dot.className = 'status-dot status-' + s.status;
         dot.nextSibling.textContent = s.status;
       }
-      if (titleEl && s.title && !titleEl.textContent.trim()) {
+      if (titleEl && s.title) {
         titleEl.textContent = s.title;
       }
       card.classList.toggle('processing', proc);
 
-      const bar = card.querySelector('.card-progress');
-      if (bar) {
+      const track = card.querySelector('.card-progress-track');
+      const bar   = card.querySelector('.card-progress');
+      if (track && bar) {
         const pct = (s.progress != null) ? s.progress : null;
         if (pct != null && (s.status === 'downloading' || s.status === 'pending')) {
-          bar.hidden = false;
+          track.hidden = false;
           bar.style.width = Math.round(pct * 100) + '%';
-          bar.title = Math.round(pct * 100) + '%';
+          track.title = Math.round(pct * 100) + '%';
         } else {
-          bar.hidden = true;
+          track.hidden = true;
           bar.style.width = '0%';
         }
       }

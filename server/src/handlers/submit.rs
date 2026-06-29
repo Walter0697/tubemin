@@ -57,7 +57,7 @@ pub async fn submit(
     let reused = db::reset_submission_to_pending(&state.pool, &body.url).await.unwrap_or(false);
     if !reused {
         let id = Uuid::new_v4().to_string();
-        if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref(), is_direct).await {
+        if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref(), is_direct, body.title.as_deref()).await {
             error!(error = %e, "db error creating submission record");
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
         }
@@ -83,6 +83,7 @@ pub async fn submit(
         };
 
         tokio::spawn(async move {
+            let _ = db::mark_downloading(&pool, &url).await;
             if let Some(ref key) = prog_key {
                 crate::progress::set(&prog_map, key, 0.0);
             }

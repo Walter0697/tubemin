@@ -11,7 +11,7 @@ pub fn start(
     pt_pass: String,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let mut ticker = interval(Duration::from_secs(30));
+        let mut ticker = interval(Duration::from_secs(10));
         loop {
             ticker.tick().await;
             let rows: Vec<(String, String)> = match sqlx::query_as(
