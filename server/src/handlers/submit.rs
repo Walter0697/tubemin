@@ -53,10 +53,11 @@ pub async fn submit(
 
     // Write the DB row before submitting to MeTube so the watcher always finds
     // a matching row, even when a fast download completes before this handler returns.
+    let is_direct = crate::url_validator::is_direct_media_url(&body.url);
     let reused = db::reset_submission_to_pending(&state.pool, &body.url).await.unwrap_or(false);
     if !reused {
         let id = Uuid::new_v4().to_string();
-        if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref()).await {
+        if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref(), is_direct, body.title.as_deref()).await {
             error!(error = %e, "db error creating submission record");
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
         }
@@ -64,26 +65,42 @@ pub async fn submit(
 
     // For direct media URLs (m3u8/mp4) use our own downloader so we can pass
     // the Referer header that many CDNs require.
-    if crate::url_validator::is_direct_media_url(&body.url) {
-        let url      = body.url.clone();
-        let referer  = body.referer.clone();
-        let title    = body.title.clone();
-        let cookies  = body.cookies.clone();
-        let pool     = state.pool.clone();
-        let dl_dir   = state.config.downloads_dir.to_string_lossy().to_string();
+    if is_direct {
+        let url       = body.url.clone();
+        let referer   = body.referer.clone();
+        let title     = body.title.clone();
+        let cookies   = body.cookies.clone();
+        let pool      = state.pool.clone();
+        let dl_dir    = state.config.downloads_dir.to_string_lossy().to_string();
+        let prog_map  = state.progress.clone();
+
+        let prog_key: Option<String> = if reused {
+            crate::db::get_submission_by_url(&pool, &url).await
+                .ok().flatten().map(|s| s.id)
+        } else {
+            crate::db::get_submission_by_url(&pool, &url).await
+                .ok().flatten().map(|s| s.id)
+        };
+
         tokio::spawn(async move {
+            let _ = db::mark_downloading(&pool, &url).await;
+            if let Some(ref key) = prog_key {
+                crate::progress::set(&prog_map, key, 0.0);
+            }
             match crate::direct_download::download(
                 &url,
                 referer.as_deref(),
                 title.as_deref(),
                 cookies.as_deref(),
                 &dl_dir,
+                prog_key,
+                Some(prog_map),
             ).await {
                 Ok(filename) => {
                     let _ = db::mark_imported_by_url(&pool, &url, &filename).await;
                 }
                 Err(e) => {
-                    error!(error = %e, url = %url, "direct download failed");
+                    tracing::error!(error = %e, url = %url, "direct download failed");
                     let _ = db::mark_pending_as_error_by_url(&pool, &url).await;
                 }
             }
@@ -141,7 +158,7 @@ mod tests {
             peertube_admin_password: None,
         });
 
-        let state = AppState { pool: pool.clone(), config };
+        let state = AppState { pool: pool.clone(), config, progress: crate::progress::new_progress_map() };
         let api_key = api_keys::generate(&pool, Some("test")).await.unwrap();
 
         let app = Router::new()

@@ -4,11 +4,14 @@ mod db;
 mod direct_download;
 mod handlers;
 mod metube;
+mod metube_socket;
 mod oidc;
 mod password_auth;
 mod peertube;
 mod poller;
+mod progress;
 mod state;
+mod transcoding_poller;
 mod url_validator;
 mod video_meta;
 mod watcher;
@@ -31,11 +34,14 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let config = config::Config::from_env()?;
     let pool = Arc::new(db::init(&config.database_url).await?);
+    db::reset_interrupted_downloads(&pool).await?;
     let config = Arc::new(config);
+    let progress_map = progress::new_progress_map();
 
     let app_state = state::AppState {
         pool: pool.clone(),
         config: config.clone(),
+        progress: progress_map.clone(),
     };
 
     // Auto-provision PeerTube bot account if admin credentials are provided
@@ -59,7 +65,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Poll MeTube queue to transition pending → downloading
-    poller::start(config.metube_url.clone(), pool.clone());
+    poller::start(config.metube_url.clone(), pool.clone(), progress_map.clone());
+
+    // Socket.IO listener for real-time MeTube download progress
+    metube_socket::start(config.metube_url.clone(), pool.clone(), progress_map.clone());
 
     // Start file watcher
     let pt_config = match (&config.peertube_url, &config.peertube_username, &config.peertube_password) {
@@ -77,6 +86,20 @@ async fn main() -> anyhow::Result<()> {
         pool.clone(),
         pt_config,
     );
+
+    if let (Some(pt_url), Some(pt_user), Some(pt_pass)) = (
+        &config.peertube_url,
+        &config.peertube_username,
+        &config.peertube_password,
+    ) {
+        transcoding_poller::start(
+            pool.clone(),
+            pt_url.clone(),
+            config.peertube_host.clone(),
+            pt_user.clone(),
+            pt_pass.clone(),
+        );
+    }
 
     // Session layer
     let session_store = MemoryStore::default();

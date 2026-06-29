@@ -107,6 +107,20 @@ pub fn start(
             }
             if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
                 let thumb_arg = thumbnail.as_ref().map(|(b, m)| (b.clone(), m.as_str()));
+                // Direct downloads have no .info.json so meta.title is None.
+                // Pull the stored title from DB so PeerTube and the dashboard show the same thing.
+                let mut meta = meta;
+                if meta.title.is_none() {
+                    let fname = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if let Ok(Some((db_title,))) = sqlx::query_as::<_, (Option<String>,)>(
+                        "SELECT title FROM submissions WHERE filename = ? LIMIT 1"
+                    )
+                    .bind(fname)
+                    .fetch_optional(pool.as_ref())
+                    .await {
+                        meta.title = db_title;
+                    }
+                }
                 match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta, thumb_arg).await {
                     Ok((preview_path, peertube_uuid)) => {
                         info!("Uploaded {} to PeerTube", dest.display());

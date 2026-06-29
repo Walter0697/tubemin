@@ -1,0 +1,1 @@
+ALTER TABLE submissions ADD COLUMN is_direct INTEGER NOT NULL DEFAULT 0;

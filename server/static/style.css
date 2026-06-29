@@ -189,6 +189,18 @@ input::placeholder { color: var(--text-dim); }
 .status-imported { background: var(--status-ok);  box-shadow: 0 0 6px #4ade8066; }
 .status-pending  { background: var(--text-dim); }
 .status-error    { background: var(--status-err); box-shadow: 0 0 6px #e85d4a66; }
+.status-downloading { background: #60a5fa; box-shadow: 0 0 6px #60a5fa66; animation: pulse-blue 1.4s ease-in-out infinite; }
+.status-transcoding  { background: var(--status-warn); box-shadow: 0 0 6px #e8884a66; animation: pulse-amber 1.4s ease-in-out infinite; }
+.status-complete     { background: #a3e635; box-shadow: 0 0 8px #a3e63566; }
+
+@keyframes pulse-blue {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
+@keyframes pulse-amber {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.45; }
+}
 
 /* ── New-key banner ─────────────────────────────── */
 .new-key {
@@ -207,7 +219,7 @@ input::placeholder { color: var(--text-dim); }
   margin-top: 10px;
   align-items: center;
 }
-.new-key-input {
+.new-key-row .new-key-input {
   flex: 1;
   font-family: var(--mono);
   font-size: 12px;
@@ -426,6 +438,21 @@ a.card.processing .card-thumb::after {
   background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
   animation: shimmer 1.8s ease-in-out infinite;
 }
+
+.card-progress-track {
+  height: 3px;
+  background: var(--surface-2);
+  width: 100%;
+}
+.card-progress {
+  height: 3px;
+  background: var(--accent);
+  width: 0%;
+  max-width: 100%;
+  transition: width 0.4s ease;
+  border-radius: 0 2px 2px 0;
+}
+.card-progress-track[hidden] { display: none; }
 
 /* Card body */
 .card-body { padding: 10px 12px 12px; }
