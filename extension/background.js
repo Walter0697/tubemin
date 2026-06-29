@@ -159,6 +159,15 @@ async function handleIntercept(details) {
     title = tab.title?.trim() || null;
   } catch { return; }
 
+  // Skip interception on the configured tubemin server — it's the destination, not a source
+  try {
+    const { serverUrl } = await chrome.storage.sync.get(['serverUrl']);
+    if (serverUrl) {
+      const serverHostname = new URL(serverUrl).hostname;
+      if (hostname === serverHostname) return;
+    }
+  } catch {}
+
   // Prefer og:title from content script if available
   try {
     const res = await chrome.tabs.sendMessage(details.tabId, { type: 'getTitle' });
