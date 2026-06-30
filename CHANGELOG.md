@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/Walter0697/tubemin/compare/v0.3.0...v0.3.1) (2026-06-30)
+
+
+### Bug Fixes
+
+* code cleanup, shared HTTP clients, and transcoding poller rate-limit fix ([#5](https://github.com/Walter0697/tubemin/issues/5)) ([872fcbe](https://github.com/Walter0697/tubemin/commit/872fcbecbfc5983f3defbd16e29eefeb04ebf556))
+
 ## [0.3.0](https://github.com/Walter0697/tubemin/compare/v0.2.0...v0.3.0) (2026-06-29)
 
 
