@@ -32,9 +32,6 @@ pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) -
                             Ok(None) => {}
                             Err(e) => error!(error = %e, url = %item.url, "db error fetching sub for progress"),
                         }
-                    }
-
-                    for item in state.active.iter().chain(state.pending.iter()) {
                         if let Some(title) = &item.title {
                             if let Err(e) = crate::db::update_submission_title(&pool, &item.url, title).await {
                                 error!(error = %e, url = %item.url, "db error updating title");

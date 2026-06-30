@@ -216,6 +216,16 @@ pub async fn mark_error(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::E
     Ok(())
 }
 
+pub async fn get_title_by_filename(pool: &SqlitePool, filename: &str) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT title FROM submissions WHERE filename = ? LIMIT 1"
+    )
+    .bind(filename)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.and_then(|(t,)| t))
+}
+
 pub async fn get_submission_by_url(pool: &SqlitePool, url: &str) -> Result<Option<Submission>, sqlx::Error> {
     sqlx::query_as::<_, Submission>(
         "SELECT * FROM submissions WHERE url = ? ORDER BY submitted_at DESC LIMIT 1"

@@ -67,8 +67,8 @@ pub fn start(
             let mut ticker = interval(Duration::from_secs(30));
             loop {
                 ticker.tick().await;
-                if let Ok(entries) = std::fs::read_dir(&scan_dir) {
-                    for entry in entries.flatten() {
+                if let Ok(mut dir) = tokio::fs::read_dir(&scan_dir).await {
+                    while let Ok(Some(entry)) = dir.next_entry().await {
                         let _ = scan_tx.send(entry.path());
                     }
                 }
@@ -76,8 +76,8 @@ pub fn start(
         });
 
         // Also do an initial scan on startup
-        if let Ok(entries) = std::fs::read_dir(&downloads_dir) {
-            for entry in entries.flatten() {
+        if let Ok(mut dir) = tokio::fs::read_dir(&downloads_dir).await {
+            while let Ok(Some(entry)) = dir.next_entry().await {
                 let _ = tx.send(entry.path());
             }
         }
@@ -87,7 +87,6 @@ pub fn start(
                 continue;
             }
             seen.insert(path.clone());
-            let path_key = path.clone();
 
             // Read thumbnail bytes before the video is moved out of /downloads
             let thumbnail = crate::video_meta::find_thumbnail_path(&path).and_then(|tp| {
@@ -99,11 +98,11 @@ pub fn start(
             });
 
             let meta = crate::video_meta::load_for(&path);
-            let dest = handle_new_file(path, &import_dir, &pool).await;
+            let dest = handle_new_file(&path, &import_dir, &pool).await;
             // Remove from seen on success so a future file with the same name
             // (e.g. a re-download after the first was moved out) gets processed.
             if dest.is_some() {
-                seen.remove(&path_key);
+                seen.remove(&path);
             }
             if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
                 let thumb_arg = thumbnail.as_ref().map(|(b, m)| (b.clone(), m.as_str()));
@@ -112,13 +111,8 @@ pub fn start(
                 let mut meta = meta;
                 if meta.title.is_none() {
                     let fname = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if let Ok(Some((db_title,))) = sqlx::query_as::<_, (Option<String>,)>(
-                        "SELECT title FROM submissions WHERE filename = ? LIMIT 1"
-                    )
-                    .bind(fname)
-                    .fetch_optional(pool.as_ref())
-                    .await {
-                        meta.title = db_title;
+                    if let Ok(title) = crate::db::get_title_by_filename(pool.as_ref(), fname).await {
+                        meta.title = title;
                     }
                 }
                 match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta, thumb_arg).await {
@@ -163,7 +157,7 @@ pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
 }
 
 pub(crate) async fn handle_new_file(
-    path: PathBuf,
+    path: &std::path::Path,
     import_dir: &PathBuf,
     pool: &SqlitePool,
 ) -> Option<PathBuf> {
@@ -172,12 +166,14 @@ pub(crate) async fn handle_new_file(
         None => return None,
     };
     let dest = import_dir.join(&filename);
-    let move_result = std::fs::copy(&path, &dest)
-        .and_then(|_| std::fs::remove_file(&path));
+    let move_result = match tokio::fs::copy(path, &dest).await {
+        Ok(_) => tokio::fs::remove_file(path).await,
+        Err(e) => Err(e),
+    };
     match move_result {
         Ok(_) => {
             info!("Moved {} to import dir", filename);
-            let _ = std::fs::remove_file(path.with_extension("info.json"));
+            let _ = tokio::fs::remove_file(path.with_extension("info.json")).await;
             // Skip mark_imported if a direct download already claimed this filename
             let already: Option<i64> = sqlx::query_scalar(
                 "SELECT 1 FROM submissions WHERE filename = ? AND status = 'imported'"
@@ -223,7 +219,7 @@ mod tests {
         std::fs::write(&test_file, b"fake video").unwrap();
 
         let result = handle_new_file(
-            test_file.clone(),
+            &test_file,
             &dst_dir.path().to_path_buf(),
             &pool,
         ).await;

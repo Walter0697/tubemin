@@ -3,6 +3,16 @@ use reqwest::Client;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
+static HTTP_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+fn client() -> &'static Client {
+    HTTP_CLIENT.get_or_init(|| {
+        Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .build()
+            .expect("failed to build HTTP client")
+    })
+}
+
 /// Download a direct media URL. Returns the filename (not full path) of the completed file.
 pub async fn download(
     url: &str,
@@ -149,15 +159,11 @@ async fn download_direct(
     cookies: Option<&str>,
     dest: &Path,
 ) -> Result<(), anyhow::Error> {
-    let client = Client::builder()
-        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        .build()?;
-
-    let mut builder = client.get(url);
+    let mut builder = client().get(url);
     if let Some(r) = referer { builder = builder.header("Referer", r); }
     if let Some(c) = cookies { builder = builder.header("Cookie", c); }
 
-    let resp = builder.send().await?;
+    let mut resp = builder.send().await?;
     if !resp.status().is_success() {
         return Err(anyhow::anyhow!("CDN returned HTTP {}", resp.status()));
     }
@@ -166,7 +172,6 @@ async fn download_direct(
     info!("Direct download: {} → {}", url, dest.display());
 
     let mut file = tokio::fs::File::create(&part).await?;
-    let mut resp = resp;
     while let Some(chunk) = resp.chunk().await? {
         file.write_all(&chunk).await?;
     }

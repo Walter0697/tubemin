@@ -9,9 +9,9 @@ function domainKey(hostname) {
 }
 
 async function getDomainList(hostname) {
-  const data = await chrome.storage.session.get(domainKey(hostname));
-  const list = data[domainKey(hostname)] || [];
-  // Filter expired entries inline
+  const key = domainKey(hostname);
+  const data = await chrome.storage.session.get(key);
+  const list = data[key] || [];
   const cutoff = Date.now() - CACHE_TTL_MS;
   return list.filter(v => v.capturedAt > cutoff);
 }
@@ -118,13 +118,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 // ── Intercept handler ─────────────────────────────────────────────────────
 
+function shouldSkip(details) {
+  return details.tabId < 0 || details.initiator?.startsWith('chrome-extension://');
+}
+
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (details.tabId < 0) return;
+    if (shouldSkip(details)) return;
     if (!/\.m3u8/i.test(details.url) && !/\.mpd/i.test(details.url) && !/\.mp4(\?|$)/i.test(details.url)) return;
-    if (details.initiator?.startsWith('chrome-extension://')) return;
     if (isSegmentUrl(details.url)) return;
-    handleIntercept(details);
+    handleIntercept(details, false);
   },
   { urls: ['<all_urls>'] }
 );
@@ -132,20 +135,19 @@ chrome.webRequest.onBeforeRequest.addListener(
 // Catch HLS/DASH streams served at extensionless URLs (content-type sniffing)
 chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
-    if (details.tabId < 0) return;
-    if (details.initiator?.startsWith('chrome-extension://')) return;
+    if (shouldSkip(details)) return;
     // Already handled by onBeforeRequest via URL pattern
     if (/\.m3u8/i.test(details.url) || /\.mpd/i.test(details.url)) return;
     const ct = details.responseHeaders
       ?.find(h => h.name.toLowerCase() === 'content-type')?.value || '';
     if (!/application\/(vnd\.apple\.mpegurl|x-mpegurl|dash\+xml)/i.test(ct)) return;
-    handleIntercept({ ...details, _isHls: true });
+    handleIntercept(details, true);
   },
   { urls: ['<all_urls>'] },
   ['responseHeaders']
 );
 
-async function handleIntercept(details) {
+async function handleIntercept(details, isHlsContent) {
   // Always key by the main tab's hostname, not the request's documentUrl/initiator.
   // Video requests often fire from iframes on a different origin, so
   // details.documentUrl != the page the user is actually looking at.
@@ -181,7 +183,7 @@ async function handleIntercept(details) {
   } catch {}
 
   const pageUrl = details.documentUrl || details.initiator || '';
-  const isHls = /\.m3u8/i.test(details.url) || details._isHls === true;
+  const isHls = isHlsContent || /\.m3u8/i.test(details.url);
 
   const entry = {
     videoUrl: details.url,
