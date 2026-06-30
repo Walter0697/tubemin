@@ -20,21 +20,19 @@ let apiKey          = '';
 let currentTabId    = null;
 let currentHostname = '';
 let minDurationSec  = 0;
-let mode            = 'url'; // 'url' | 'list'
 let capturedVideos  = [];
+let onSend          = handleUrlQueue;
 
 const STALE_MS = 20 * 60 * 1000;
 
 settingsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
 
-selectAllBtn.addEventListener('click', () => {
-  videoList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = true; });
+function setAllChecked(val) {
+  videoList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = val; });
   updateQueueBtn();
-});
-unselectAllBtn.addEventListener('click', () => {
-  videoList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = false; });
-  updateQueueBtn();
-});
+}
+selectAllBtn.addEventListener('click', () => setAllChecked(true));
+unselectAllBtn.addEventListener('click', () => setAllChecked(false));
 dashboardBtn.addEventListener('click', () => {
   if (serverUrl) chrome.tabs.create({ url: `${serverUrl}/dashboard` });
 });
@@ -79,7 +77,7 @@ function updateQueueBtn() {
 }
 
 function showListMode(videos) {
-  mode = 'list';
+  onSend = handleListQueue;
   capturedVideos = videos;
   urlSection.hidden = true;
   videoListSection.hidden = false;
@@ -95,8 +93,8 @@ function showListMode(videos) {
   videoList.innerHTML = '';
 
   // Newest first
-  [...videos].reverse().forEach((item, revIdx) => {
-    const origIdx = videos.length - 1 - revIdx;
+  for (let origIdx = videos.length - 1; origIdx >= 0; origIdx--) {
+    const item = videos[origIdx];
     const stale = (now - item.capturedAt) > STALE_MS;
     const displayTitle = item.title || 'Unknown';
 
@@ -136,15 +134,10 @@ function showListMode(videos) {
     label.appendChild(col);
     label.appendChild(ageSpan);
     videoList.appendChild(label);
-  });
-
-  if (!serverUrl || !apiKey) {
-    setHint('Configure your server in Settings.');
-    sendBtn.disabled = true;
-    sendBtn.textContent = 'Queue Selected';
-  } else {
-    updateQueueBtn();
   }
+
+  if (!serverUrl || !apiKey) setHint('Configure your server in Settings.');
+  updateQueueBtn();
 }
 
 // ── URL mode ───────────────────────────────────────────────────────────────
@@ -199,7 +192,7 @@ async function checkExistingSubmission() {
 }
 
 function showUrlMode() {
-  mode = 'url';
+  onSend = handleUrlQueue;
   urlSection.hidden = false;
   videoListSection.hidden = true;
   sendBtn.textContent = 'Queue Video';
@@ -259,10 +252,7 @@ Promise.all([
 
 // ── Send handlers ──────────────────────────────────────────────────────────
 
-sendBtn.addEventListener('click', () => {
-  if (mode === 'list') handleListQueue();
-  else handleUrlQueue();
-});
+sendBtn.addEventListener('click', () => onSend());
 
 async function handleListQueue() {
   const checkboxes = videoList.querySelectorAll('input:checked');
@@ -278,6 +268,7 @@ async function handleListQueue() {
 
   let succeeded = 0;
   let failed = 0;
+  let authFailed = false;
 
   for (const item of selected) {
     try {
@@ -293,7 +284,10 @@ async function handleListQueue() {
         }),
       });
       if (resp.ok) succeeded++;
-      else failed++;
+      else {
+        if (resp.status === 401) authFailed = true;
+        failed++;
+      }
     } catch {
       failed++;
     }
@@ -307,7 +301,11 @@ async function handleListQueue() {
     if (currentTabId) chrome.runtime.sendMessage({ type: 'clearBadge', tabId: currentTabId });
   } else {
     statusEl.className = 'error';
-    statusEl.textContent = `${succeeded} queued, ${failed} failed.`;
+    if (authFailed) {
+      statusEl.textContent = 'Invalid API key — check Settings.';
+    } else {
+      statusEl.textContent = `${succeeded} queued, ${failed} failed.`;
+    }
     updateQueueBtn();
   }
 }

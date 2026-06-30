@@ -55,13 +55,20 @@ pub async fn submit(
     // a matching row, even when a fast download completes before this handler returns.
     let is_direct = crate::url_validator::is_direct_media_url(&body.url);
     let reused = db::reset_submission_to_pending(&state.pool, &body.url).await.unwrap_or(false);
-    if !reused {
+
+    // Track the submission ID: use the just-generated one on new submissions to
+    // avoid a second DB round-trip; look it up only when reusing an existing row.
+    let submission_id: Option<String> = if !reused {
         let id = Uuid::new_v4().to_string();
         if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref(), is_direct, body.title.as_deref()).await {
             error!(error = %e, "db error creating submission record");
             return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
         }
-    }
+        Some(id)
+    } else {
+        crate::db::get_submission_by_url(&state.pool, &body.url).await
+            .ok().flatten().map(|s| s.id)
+    };
 
     // For direct media URLs (m3u8/mp4) use our own downloader so we can pass
     // the Referer header that many CDNs require.
@@ -73,14 +80,7 @@ pub async fn submit(
         let pool      = state.pool.clone();
         let dl_dir    = state.config.downloads_dir.to_string_lossy().to_string();
         let prog_map  = state.progress.clone();
-
-        let prog_key: Option<String> = if reused {
-            crate::db::get_submission_by_url(&pool, &url).await
-                .ok().flatten().map(|s| s.id)
-        } else {
-            crate::db::get_submission_by_url(&pool, &url).await
-                .ok().flatten().map(|s| s.id)
-        };
+        let prog_key  = submission_id;
 
         tokio::spawn(async move {
             let _ = db::mark_downloading(&pool, &url).await;

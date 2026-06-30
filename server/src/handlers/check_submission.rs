@@ -14,7 +14,6 @@ pub async fn check_submission(
 ) -> impl IntoResponse {
     match crate::db::get_submission_by_url(&state.pool, &params.url).await {
         Ok(Some(sub)) => (StatusCode::OK, Json(json!({"status": sub.status}))).into_response(),
-        Ok(None)      => (StatusCode::OK, Json(json!({"status": null}))).into_response(),
-        Err(_)        => (StatusCode::OK, Json(json!({"status": null}))).into_response(),
+        _ => (StatusCode::OK, Json(json!({"status": null}))).into_response(),
     }
 }

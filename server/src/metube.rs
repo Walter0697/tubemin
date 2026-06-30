@@ -2,6 +2,11 @@ use reqwest::Client;
 use thiserror::Error;
 use serde_json::json;
 
+static HTTP_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+fn client() -> &'static Client {
+    HTTP_CLIENT.get_or_init(Client::new)
+}
+
 #[derive(Debug, Error)]
 pub enum MeTubeError {
     #[error("http error: {0}")]
@@ -42,8 +47,7 @@ fn extract_items(arr: Option<&serde_json::Value>, error_filter: bool) -> Vec<Que
 }
 
 pub async fn get_queue_state(metube_url: &str) -> Result<QueueState, MeTubeError> {
-    let client = Client::new();
-    let resp = client
+    let resp = client()
         .get(format!("{}/history", metube_url))
         .send()
         .await?;
@@ -61,8 +65,7 @@ pub async fn get_queue_state(metube_url: &str) -> Result<QueueState, MeTubeError
 }
 
 pub async fn submit(metube_url: &str, url: &str) -> Result<(), MeTubeError> {
-    let client = Client::new();
-    let resp = client
+    let resp = client()
         .post(format!("{}/add", metube_url))
         .json(&json!({
             "url": url,

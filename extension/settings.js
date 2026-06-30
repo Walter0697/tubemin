@@ -40,8 +40,9 @@ changeBtn.addEventListener('click', showInput);
 
 testBtn.addEventListener('click', async () => {
   const url = serverUrlInput.value.trim().replace(/\/$/, '');
-  const key = apiKeyInput.style.display !== 'none' && apiKeyInput.value.trim()
-    ? apiKeyInput.value.trim()
+  const trimmed = apiKeyInput.value.trim();
+  const key = apiKeyInput.style.display !== 'none' && trimmed
+    ? trimmed
     : await new Promise((resolve) => chrome.storage.sync.get(['apiKey'], (d) => resolve(d.apiKey || '')));
 
   if (!url || !key) {
