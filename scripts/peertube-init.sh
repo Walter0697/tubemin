@@ -28,6 +28,9 @@ TOKEN=$(curl -sf \
   --data-urlencode "username=${ADMIN_USER}" \
   --data-urlencode "password=${ADMIN_PASS}" \
   "${PT_URL}/api/v1/users/token" | jq -r '.access_token')
+# Access token TTL is ~1 hour. The script normally completes in seconds,
+# but a stall (e.g. npm network issue) could cause later API calls to 401.
+# If that happens, re-run the container: docker compose run --rm peertube_init
 
 echo "[peertube-init] Installing plugin ${PLUGIN}..."
 
@@ -38,7 +41,7 @@ HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
   -d "{\"npmName\":\"${PLUGIN}\"}" \
   "${PT_URL}/api/v1/plugins/install")
 
-# 200 = installed, 409 = already installed — both are fine
+# 204 = installed, 409 = already installed — both are fine
 if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "204" ] && [ "$HTTP_STATUS" != "409" ]; then
   echo "[peertube-init] Plugin install failed with HTTP ${HTTP_STATUS}" >&2
   exit 1

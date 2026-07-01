@@ -96,10 +96,18 @@ impl Config {
                 std::env::var("PEERTUBE_ADMIN_USERNAME").unwrap_or_else(|_| "root".into())
             ),
             peertube_admin_password: std::env::var("PEERTUBE_ADMIN_PASSWORD").ok(),
-            peertube_video_privacy: std::env::var("PEERTUBE_VIDEO_PRIVACY")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(4),
+            peertube_video_privacy: {
+                let v = std::env::var("PEERTUBE_VIDEO_PRIVACY")
+                    .ok()
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .unwrap_or(4);
+                if !(1..=4).contains(&v) {
+                    return Err(anyhow::anyhow!(
+                        "PEERTUBE_VIDEO_PRIVACY must be 1-4 (got {})", v
+                    ));
+                }
+                v
+            },
         })
     }
 }
@@ -116,6 +124,7 @@ mod tests {
         std::env::remove_var("METUBE_URL");
         std::env::remove_var("DOWNLOADS_DIR");
         std::env::remove_var("PEERTUBE_IMPORT_DIR");
+        std::env::remove_var("PEERTUBE_VIDEO_PRIVACY");
     }
 
     #[test]
@@ -190,5 +199,19 @@ mod tests {
 
         let config = Config::from_env().unwrap();
         assert_eq!(config.peertube_video_privacy, 1);
+    }
+
+    #[test]
+    fn invalid_video_privacy_is_rejected() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_base_vars();
+        std::env::set_var("AUTH_MODE", "oidc");
+        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
+        std::env::set_var("OIDC_CLIENT_ID", "tubemin");
+        std::env::set_var("OIDC_CLIENT_SECRET", "secret");
+        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var("PEERTUBE_VIDEO_PRIVACY", "5");
+
+        assert!(Config::from_env().is_err());
     }
 }
