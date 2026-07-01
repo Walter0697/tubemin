@@ -11,12 +11,19 @@ use crate::state::AppState;
 use crate::{api_keys, db, metube};
 
 #[derive(Deserialize)]
+pub struct SubtitleTrack {
+    pub lang: String,
+    pub src: String,
+}
+
+#[derive(Deserialize)]
 pub struct SubmitRequest {
     pub url: String,
     pub referer: Option<String>,
     pub source_url: Option<String>,
     pub title: Option<String>,
     pub cookies: Option<String>,
+    pub subtitle_tracks: Option<Vec<SubtitleTrack>>,
 }
 
 #[derive(Serialize)]
@@ -73,14 +80,19 @@ pub async fn submit(
     // For direct media URLs (m3u8/mp4) use our own downloader so we can pass
     // the Referer header that many CDNs require.
     if is_direct {
-        let url       = body.url.clone();
-        let referer   = body.referer.clone();
-        let title     = body.title.clone();
-        let cookies   = body.cookies.clone();
-        let pool      = state.pool.clone();
-        let dl_dir    = state.config.downloads_dir.to_string_lossy().to_string();
-        let prog_map  = state.progress.clone();
-        let prog_key  = submission_id;
+        let url            = body.url.clone();
+        let referer        = body.referer.clone();
+        let title          = body.title.clone();
+        let cookies        = body.cookies.clone();
+        let subtitle_tracks: Vec<(String, String)> = body.subtitle_tracks
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| (t.lang, t.src))
+            .collect();
+        let pool           = state.pool.clone();
+        let dl_dir         = state.config.downloads_dir.to_string_lossy().to_string();
+        let prog_map       = state.progress.clone();
+        let prog_key       = submission_id;
 
         tokio::spawn(async move {
             let _ = db::mark_downloading(&pool, &url).await;
@@ -95,6 +107,7 @@ pub async fn submit(
                 &dl_dir,
                 prog_key,
                 Some(prog_map),
+                subtitle_tracks,
             ).await {
                 Ok(filename) => {
                     let _ = db::mark_imported_by_url(&pool, &url, &filename).await;

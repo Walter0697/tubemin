@@ -170,10 +170,12 @@ async function handleIntercept(details, isHlsContent) {
     }
   } catch {}
 
-  // Prefer og:title from content script if available
+  // Prefer og:title from content script if available; also grab <track> subtitle URLs
+  let subtitleTracks = null;
   try {
     const res = await chrome.tabs.sendMessage(details.tabId, { type: 'getTitle' });
     if (res?.title) title = res.title;
+    if (res?.subtitleTracks?.length) subtitleTracks = res.subtitleTracks;
   } catch {}
 
   let cookies = null;
@@ -191,6 +193,7 @@ async function handleIntercept(details, isHlsContent) {
     sourceUrl: tabUrl,
     title,
     cookies,
+    subtitleTracks,
     capturedAt: Date.now(),
     duration: null,  // filled async below for m3u8
     isMaster: null,  // filled async below for m3u8
