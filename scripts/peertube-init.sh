@@ -91,12 +91,11 @@ curl -sf \
     --arg cid  "$OIDC_CLIENT_ID" \
     --arg csec "$OIDC_CLIENT_SECRET" \
     '{settings: {
-        discoveryUrl:    $url,
-        clientId:        $cid,
-        clientSecret:    $csec,
-        scope:           "openid email profile",
-        authDisplayName: "Login with Authentik",
-        autoRegistration: true
+        "discover-url":    $url,
+        "client-id":       $cid,
+        "client-secret":   $csec,
+        "scope":           "openid email profile",
+        "auth-display-name": "Login with Authentik"
     }}')" \
   "${PT_URL}/api/v1/plugins/${PLUGIN}/settings"
 
