@@ -11,6 +11,7 @@ pub struct PeerTubeConfig {
     pub host: Option<String>,
     pub username: String,
     pub password: String,
+    pub privacy: u8,
 }
 
 pub fn start(
@@ -119,7 +120,7 @@ pub fn start(
                         meta.title = title;
                     }
                 }
-                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, &dest, &meta, thumb_arg).await {
+                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, pt.privacy, &dest, &meta, thumb_arg).await {
                     Ok((preview_path, peertube_uuid)) => {
                         info!("Uploaded {} to PeerTube", dest.display());
                         let filename = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");

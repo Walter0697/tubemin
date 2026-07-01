@@ -26,6 +26,7 @@ pub struct Config {
     pub peertube_admin_email: Option<String>,
     pub peertube_admin_username: Option<String>,
     pub peertube_admin_password: Option<String>,
+    pub peertube_video_privacy: u8,
 }
 
 impl Config {
@@ -95,6 +96,10 @@ impl Config {
                 std::env::var("PEERTUBE_ADMIN_USERNAME").unwrap_or_else(|_| "root".into())
             ),
             peertube_admin_password: std::env::var("PEERTUBE_ADMIN_PASSWORD").ok(),
+            peertube_video_privacy: std::env::var("PEERTUBE_VIDEO_PRIVACY")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(4),
         })
     }
 }
@@ -155,5 +160,35 @@ mod tests {
         assert!(matches!(config.auth_mode, AuthMode::Password));
         assert_eq!(config.admin_password.as_deref(), Some("hunter2"));
         assert!(config.oidc_issuer_url.is_none());
+    }
+
+    #[test]
+    fn default_video_privacy_is_internal() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_base_vars();
+        std::env::set_var("AUTH_MODE", "oidc");
+        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
+        std::env::set_var("OIDC_CLIENT_ID", "tubemin");
+        std::env::set_var("OIDC_CLIENT_SECRET", "secret");
+        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::remove_var("PEERTUBE_VIDEO_PRIVACY");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.peertube_video_privacy, 4);
+    }
+
+    #[test]
+    fn custom_video_privacy_is_read() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_base_vars();
+        std::env::set_var("AUTH_MODE", "oidc");
+        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
+        std::env::set_var("OIDC_CLIENT_ID", "tubemin");
+        std::env::set_var("OIDC_CLIENT_SECRET", "secret");
+        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var("PEERTUBE_VIDEO_PRIVACY", "1");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.peertube_video_privacy, 1);
     }
 }
