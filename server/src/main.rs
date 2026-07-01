@@ -77,6 +77,7 @@ async fn main() -> anyhow::Result<()> {
             host: config.peertube_host.clone(),
             username: user.clone(),
             password: pass.clone(),
+            privacy: config.peertube_video_privacy,
         }),
         _ => None,
     };

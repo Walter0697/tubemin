@@ -256,7 +256,7 @@ fn derive_host(url: &str) -> String {
 }
 
 /// Upload a video to PeerTube. Returns the `/lazy-static/previews/{uuid}.jpg` path on success.
-pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, file_path: &Path, meta: &crate::video_meta::VideoMeta, thumbnail: Option<(Vec<u8>, &str)>) -> Result<(String, String)> {
+pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, privacy: u8, file_path: &Path, meta: &crate::video_meta::VideoMeta, thumbnail: Option<(Vec<u8>, &str)>) -> Result<(String, String)> {
     // PeerTube validates Host against PEERTUBE_WEBSERVER_HOSTNAME (its public hostname).
     // When Tubemin connects via Docker-internal URL (peertube:9000) we must send the
     // public hostname (localhost:9000) in the Host header. PEERTUBE_HOST provides this.
@@ -334,7 +334,7 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
     let mut form = reqwest::multipart::Form::new()
         .text("name", title)
         .text("channelId", channel_id.to_string())
-        .text("privacy", "1"); // 1 = Public
+        .text("privacy", privacy.to_string());
 
     if !description.is_empty() {
         form = form.text("description", description);
