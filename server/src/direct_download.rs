@@ -42,6 +42,9 @@ pub async fn download(
 
     if is_hls {
         download_hls(url, referer, cookies, &dest, progress_key, progress_map).await?;
+        // Best-effort: extract subtitle tracks from the master playlist as sidecar .vtt files.
+        // The watcher will pick these up and upload them to PeerTube's captions API.
+        extract_hls_subtitles(url, referer, cookies, &dest).await;
     } else {
         download_direct(url, referer, cookies, &dest).await?;
     }
@@ -149,6 +152,90 @@ async fn download_hls(
     tokio::fs::rename(&part, dest).await?;
     info!("HLS download complete: {}", dest.display());
     Ok(())
+}
+
+// ── HLS subtitle extraction ────────────────────────────────────────────────
+// Parses #EXT-X-MEDIA:TYPE=SUBTITLES lines from the master playlist and runs
+// ffmpeg on each subtitle playlist to produce sidecar .vtt files next to dest.
+// Entirely best-effort — any error is logged as a warning.
+
+async fn extract_hls_subtitles(master_url: &str, referer: Option<&str>, cookies: Option<&str>, dest: &Path) {
+    let tracks = match fetch_subtitle_tracks(master_url, referer, cookies).await {
+        Ok(t) => t,
+        Err(e) => { tracing::warn!("subtitle track discovery failed: {}", e); return; }
+    };
+    if tracks.is_empty() { return; }
+
+    let mut headers = String::from(
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
+    );
+    if let Some(r) = referer { headers.push_str(&format!("Referer: {}\r\n", r)); }
+    if let Some(c) = cookies { headers.push_str(&format!("Cookie: {}\r\n", c)); }
+
+    let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+    let dir = dest.parent().unwrap_or(Path::new("."));
+
+    for (lang, sub_url) in tracks {
+        let out = dir.join(format!("{}.{}.vtt", stem, lang));
+        let status = tokio::process::Command::new("ffmpeg")
+            .args(["-y", "-headers", &headers, "-i", &sub_url, "-f", "webvtt", out.to_str().unwrap_or("")])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await;
+        match status {
+            Ok(s) if s.success() => info!("Extracted {} subtitle → {}", lang, out.display()),
+            Ok(s) => tracing::warn!("ffmpeg subtitle extract failed for lang {}: status {}", lang, s),
+            Err(e) => tracing::warn!("ffmpeg subtitle extract error for lang {}: {}", lang, e),
+        }
+    }
+}
+
+// Returns (language_code, absolute_subtitle_playlist_url) pairs from a master playlist.
+async fn fetch_subtitle_tracks(master_url: &str, referer: Option<&str>, cookies: Option<&str>) -> anyhow::Result<Vec<(String, String)>> {
+    let mut req = client().get(master_url);
+    if let Some(r) = referer { req = req.header("Referer", r); }
+    if let Some(c) = cookies { req = req.header("Cookie", c); }
+    let text = req.send().await?.text().await?;
+
+    let mut tracks = vec![];
+    for line in text.lines() {
+        let line = line.trim();
+        // #EXT-X-MEDIA:TYPE=SUBTITLES,...,LANGUAGE="en",...,URI="sub/en.m3u8"
+        if !line.starts_with("#EXT-X-MEDIA") { continue; }
+        if !line.contains("TYPE=SUBTITLES") { continue; }
+
+        let lang = extract_attr(line, "LANGUAGE").unwrap_or_else(|| "und".to_string());
+        let uri = match extract_attr(line, "URI") {
+            Some(u) => u,
+            None => continue,
+        };
+
+        // Resolve relative URIs against the master playlist URL
+        let abs_url = if uri.starts_with("http://") || uri.starts_with("https://") {
+            uri
+        } else {
+            match reqwest::Url::parse(master_url).ok().and_then(|base| base.join(&uri).ok()) {
+                Some(u) => u.to_string(),
+                None => continue,
+            }
+        };
+        tracks.push((lang, abs_url));
+    }
+    Ok(tracks)
+}
+
+fn extract_attr(line: &str, key: &str) -> Option<String> {
+    let search = format!("{}=", key);
+    let start = line.find(&search)? + search.len();
+    let rest = &line[start..];
+    if rest.starts_with('"') {
+        let end = rest[1..].find('"')? + 1;
+        Some(rest[1..end].to_string())
+    } else {
+        let end = rest.find([',', '\r', '\n']).unwrap_or(rest.len());
+        Some(rest[..end].to_string())
+    }
 }
 
 // ── Direct MP4/file download via reqwest ───────────────────────────────────
