@@ -74,6 +74,9 @@ services:
     volumes:
       - peertube_redis_data:/data
 
+  # One-shot init: installs PeerTube OIDC plugin and sets requiresAuth.
+  # Idempotent — safe to re-run on each `docker compose up`.
+  # To run manually: docker compose run --rm peertube_init
   peertube_init:
     image: alpine:3.21
     env_file: .env
