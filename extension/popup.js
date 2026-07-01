@@ -281,6 +281,7 @@ async function handleListQueue() {
           source_url: item.sourceUrl || null,
           title: item.title || null,
           cookies: item.cookies || null,
+          subtitle_tracks: item.subtitleTracks || null,
         }),
       });
       if (resp.ok) succeeded++;

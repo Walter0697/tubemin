@@ -14,6 +14,7 @@ fn client() -> &'static Client {
 }
 
 /// Download a direct media URL. Returns the filename (not full path) of the completed file.
+/// `explicit_subtitles` are (lang, url) pairs from `<track>` elements captured by the extension.
 pub async fn download(
     url: &str,
     referer: Option<&str>,
@@ -22,6 +23,7 @@ pub async fn download(
     downloads_dir: &str,
     progress_key: Option<String>,
     progress_map: Option<crate::progress::ProgressMap>,
+    explicit_subtitles: Vec<(String, String)>,
 ) -> Result<String, anyhow::Error> {
     let url_path = url.split('?').next().unwrap_or(url);
     let is_hls = url_path.ends_with(".m3u8") || url_path.ends_with(".mpd");
@@ -42,11 +44,16 @@ pub async fn download(
 
     if is_hls {
         download_hls(url, referer, cookies, &dest, progress_key, progress_map).await?;
-        // Best-effort: extract subtitle tracks from the master playlist as sidecar .vtt files.
-        // The watcher will pick these up and upload them to PeerTube's captions API.
+        // Best-effort: extract subtitle tracks from the HLS master playlist.
         extract_hls_subtitles(url, referer, cookies, &dest).await;
     } else {
         download_direct(url, referer, cookies, &dest).await?;
+    }
+
+    // Best-effort: download explicit <track> subtitle URLs captured by the extension.
+    // These cover sites where subtitles aren't in the HLS manifest but are in the DOM.
+    if !explicit_subtitles.is_empty() {
+        download_explicit_subtitles(&explicit_subtitles, referer, cookies, &dest).await;
     }
 
     let filename = dest
@@ -152,6 +159,46 @@ async fn download_hls(
     tokio::fs::rename(&part, dest).await?;
     info!("HLS download complete: {}", dest.display());
     Ok(())
+}
+
+// ── Explicit subtitle download (<track> elements) ─────────────────────────
+// Downloads subtitle URLs captured directly from the page DOM by the extension.
+// Skips any language already written by HLS subtitle extraction.
+
+async fn download_explicit_subtitles(
+    tracks: &[(String, String)],
+    referer: Option<&str>,
+    cookies: Option<&str>,
+    dest: &Path,
+) {
+    let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
+    let dir = dest.parent().unwrap_or(Path::new("."));
+
+    for (lang, src_url) in tracks {
+        let out = dir.join(format!("{}.{}.vtt", stem, lang));
+        // Skip if HLS extraction already wrote this language
+        if out.exists() { continue; }
+
+        let mut req = client().get(src_url);
+        if let Some(r) = referer { req = req.header("Referer", r); }
+        if let Some(c) = cookies { req = req.header("Cookie", c); }
+
+        match req.send().await {
+            Ok(resp) if resp.status().is_success() => {
+                match resp.bytes().await {
+                    Ok(bytes) => {
+                        match tokio::fs::write(&out, &bytes).await {
+                            Ok(_) => info!("Downloaded <track> subtitle {} → {}", lang, out.display()),
+                            Err(e) => tracing::warn!("Failed to write subtitle {}: {}", lang, e),
+                        }
+                    }
+                    Err(e) => tracing::warn!("Failed to read subtitle response for lang {}: {}", lang, e),
+                }
+            }
+            Ok(resp) => tracing::warn!("Subtitle fetch returned {} for lang {}", resp.status(), lang),
+            Err(e) => tracing::warn!("Subtitle fetch failed for lang {}: {}", lang, e),
+        }
+    }
 }
 
 // ── HLS subtitle extraction ────────────────────────────────────────────────
