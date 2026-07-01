@@ -25,10 +25,8 @@ services:
       - ./data/peertube-import:/peertube-import
       - tubemin_data:/data
     depends_on:
-      metube:
-        condition: service_started
-      peertube:
-        condition: service_healthy
+      - metube
+      - peertube
 
   metube:
     image: ghcr.io/alexta69/metube:latest
