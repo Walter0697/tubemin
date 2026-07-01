@@ -169,6 +169,7 @@ mod tests {
             peertube_admin_email: None,
             peertube_admin_username: None,
             peertube_admin_password: None,
+            peertube_video_privacy: 4,
         });
 
         let state = AppState { pool: pool.clone(), config, progress: crate::progress::new_progress_map() };
