@@ -83,7 +83,7 @@ pub fn start(
         }
 
         while let Some(path) = rx.recv().await {
-            if !path.is_file() || is_temp_file(&path) || is_image_file(&path) || seen.contains(&path) {
+            if !path.is_file() || is_temp_file(&path) || is_image_file(&path) || is_subtitle_file(&path) || seen.contains(&path) {
                 continue;
             }
             seen.insert(path.clone());
@@ -96,6 +96,10 @@ pub fn start(
                     (bytes, mime.to_string())
                 })
             });
+
+            // Collect subtitle sidecars before the video is moved out of /downloads.
+            // yt-dlp writes them alongside the video as {stem}.{lang}.vtt.
+            let subtitles = find_subtitle_sidecars(&path);
 
             let meta = crate::video_meta::load_for(&path);
             let dest = handle_new_file(&path, &import_dir, &pool).await;
@@ -122,12 +126,70 @@ pub fn start(
                         if let Err(e) = crate::db::set_peertube_thumb(&pool, filename, &preview_path, &peertube_uuid).await {
                             error!("db error storing peertube thumb for {}: {}", filename, e);
                         }
+                        // Upload subtitle captions to PeerTube
+                        if !subtitles.is_empty() {
+                            let caption_data: Vec<(String, Vec<u8>)> = subtitles.iter()
+                                .filter_map(|(lang, p)| std::fs::read(p).ok().map(|b| (lang.clone(), b)))
+                                .collect();
+                            if let Err(e) = crate::peertube::upload_captions(
+                                &pt.url, pt.host.as_deref(), &pt.username, &pt.password,
+                                &peertube_uuid, &caption_data,
+                            ).await {
+                                error!("Caption upload failed for {}: {}", peertube_uuid, e);
+                            }
+                        }
                     }
                     Err(e) => error!("PeerTube upload failed for {}: {}", dest.display(), e),
                 }
             }
+            // Clean up sidecar subtitle files whether or not PeerTube is configured
+            for (_, sub_path) in &subtitles {
+                let _ = std::fs::remove_file(sub_path);
+            }
         }
     })
+}
+
+pub(crate) fn is_subtitle_file(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension().and_then(|e| e.to_str()),
+        Some("vtt") | Some("srt") | Some("ass") | Some("ssa") | Some("sub")
+    )
+}
+
+// Returns sidecar subtitle files next to `video_path` as (lang_code, path) pairs.
+// yt-dlp names them `{stem}.{lang}.vtt`, e.g. `My Video.en.vtt`.
+fn find_subtitle_sidecars(video_path: &std::path::Path) -> Vec<(String, std::path::PathBuf)> {
+    let stem = match video_path.file_stem().and_then(|s| s.to_str()) {
+        Some(s) => s.to_string(),
+        None => return vec![],
+    };
+    let dir = match video_path.parent() {
+        Some(d) => d,
+        None => return vec![],
+    };
+    let prefix = format!("{}.", stem);
+    let mut results = vec![];
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !is_subtitle_file(&path) { continue; }
+            let fname = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n.to_string(),
+                None => continue,
+            };
+            if !fname.starts_with(&prefix) { continue; }
+            // "My Video.en.vtt" → rest after prefix = "en.vtt"
+            let rest = &fname[prefix.len()..];
+            if let Some(dot) = rest.rfind('.') {
+                let lang = &rest[..dot];
+                if !lang.is_empty() {
+                    results.push((lang.to_string(), path));
+                }
+            }
+        }
+    }
+    results
 }
 
 pub(crate) fn is_image_file(path: &std::path::Path) -> bool {

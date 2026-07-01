@@ -200,6 +200,61 @@ struct VideoDetails {
     preview_path: String,
 }
 
+/// Upload subtitle captions to PeerTube for an already-uploaded video.
+/// `captions` is a list of (language_code, vtt_bytes), e.g. ("en", vtt_bytes).
+pub async fn upload_captions(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    video_uuid: &str,
+    captions: &[(String, Vec<u8>)],
+) -> Result<()> {
+    if captions.is_empty() { return Ok(()); }
+
+    let host = host_override.map(|s| s.to_string()).unwrap_or_else(|| derive_host(url));
+    let client = Client::new();
+
+    let resp = client.get(format!("{}/api/v1/oauth-clients/local", url)).header("Host", &host).send().await?;
+    let body = resp.text().await?;
+    let oauth: OAuthClient = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
+
+    let resp = client
+        .post(format!("{}/api/v1/users/token", url))
+        .header("Host", &host)
+        .form(&[
+            ("client_id", oauth.client_id.as_str()), ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type", "password"), ("response_type", "code"),
+            ("username", username), ("password", password),
+        ])
+        .send().await?;
+    let body = resp.text().await?;
+    let token: TokenResponse = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
+
+    for (lang, vtt_bytes) in captions {
+        let part = reqwest::multipart::Part::bytes(vtt_bytes.clone())
+            .file_name(format!("{}.vtt", lang))
+            .mime_str("text/vtt")?;
+        let form = reqwest::multipart::Form::new().part("captionfile", part);
+        let resp = client
+            .put(format!("{}/api/v1/videos/{}/captions/{}", url, video_uuid, lang))
+            .header("Host", &host)
+            .bearer_auth(&token.access_token)
+            .multipart(form)
+            .send().await?;
+        if resp.status().is_success() {
+            tracing::info!("Uploaded {} caption for video {}", lang, video_uuid);
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            tracing::warn!("Caption upload failed for lang {} ({}): {}", lang, status, body);
+        }
+    }
+    Ok(())
+}
+
 pub async fn delete_video(url: &str, host_override: Option<&str>, username: &str, password: &str, video_uuid: &str) -> Result<()> {
     let host = host_override.map(|s| s.to_string()).unwrap_or_else(|| derive_host(url));
     let client = Client::new();
