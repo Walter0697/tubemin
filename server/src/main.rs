@@ -131,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(|| async { axum::response::Redirect::to("/auth/login") }))
+        .route("/health", get(|| async { axum::Json(serde_json::json!({"status": "ok"})) }))
         .route("/api/submit", post(handlers::submit))
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))

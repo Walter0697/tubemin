@@ -177,6 +177,7 @@ docker compose up --build --pull never -d tubemin
 | `OIDC_CLIENT_ID` | if OIDC mode | — | OAuth client ID |
 | `OIDC_CLIENT_SECRET` | if OIDC mode | — | OAuth client secret |
 | `OIDC_REDIRECT_URL` | if OIDC mode | — | Must be `https://<domain>/auth/callback` |
+| `OIDC_LOGIN_LABEL` | no | `Sign in with Authentik` | Login button label on the sign-in page |
 | `API_PORT` | no | `3000` | Internal port Tubemin listens on |
 | `DATABASE_URL` | yes | — | `sqlite:///data/tubemin.db` |
 | `METUBE_URL` | no | `http://metube:8081` | MeTube internal address |
@@ -189,5 +190,9 @@ docker compose up --build --pull never -d tubemin
 | `PEERTUBE_ADMIN_EMAIL` | no | — | Used to provision bot account |
 | `PEERTUBE_ADMIN_USERNAME` | no | `root` | PeerTube admin username |
 | `PEERTUBE_ADMIN_PASSWORD` | no | — | PeerTube admin password (for bot provisioning) |
+| `PEERTUBE_VIDEO_PRIVACY` | no | `4` | Upload privacy: 1=Public 2=Unlisted 3=Private 4=Internal |
+| `PEERTUBE_OIDC_ISSUER_URL` | no | — | Authentik issuer URL for the PeerTube OIDC plugin |
+| `PEERTUBE_OIDC_CLIENT_ID` | no | — | Client ID for the PeerTube Authentik application |
+| `PEERTUBE_OIDC_CLIENT_SECRET` | no | — | Client secret for the PeerTube Authentik application |
 | `TUBEMIN_DOMAIN` | yes (prod) | — | Caddy HTTPS domain for Tubemin |
 | `PEERTUBE_DOMAIN` | yes (prod) | — | Caddy HTTPS domain for PeerTube |
