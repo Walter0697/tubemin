@@ -2,7 +2,7 @@ use axum::{
     async_trait,
     extract::{FromRequestParts, Query, State},
     http::{request::Parts, StatusCode},
-    response::{IntoResponse, Redirect, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use openidconnect::{
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
@@ -53,6 +53,13 @@ pub async fn build_oidc_client(config: &crate::config::Config) -> anyhow::Result
         Some(ClientSecret::new(client_secret.to_string())),
     )
     .set_redirect_uri(RedirectUrl::new(redirect_url.to_string())?))
+}
+
+pub async fn login_page(State(state): State<AppState>) -> impl IntoResponse {
+    let label = &state.config.oidc_login_label;
+    let html = include_str!("../templates/login_oidc.html")
+        .replace("{{OIDC_LOGIN_LABEL}}", label);
+    Html(html)
 }
 
 pub async fn login(State(state): State<AppState>, session: Session) -> impl IntoResponse {
@@ -149,6 +156,11 @@ pub async fn callback(
         }
         Err(_) => StatusCode::UNAUTHORIZED.into_response(),
     }
+}
+
+pub async fn logout(session: Session) -> impl IntoResponse {
+    session.delete().await.ok();
+    Redirect::to("/auth/login")
 }
 
 pub struct RequireAuth(pub OidcUser);

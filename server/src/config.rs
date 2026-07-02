@@ -19,6 +19,7 @@ pub struct Config {
     pub oidc_client_id: Option<String>,
     pub oidc_client_secret: Option<String>,
     pub oidc_redirect_url: Option<String>,
+    pub oidc_login_label: String,
     pub peertube_url: Option<String>,
     pub peertube_host: Option<String>,
     pub peertube_username: Option<String>,
@@ -87,6 +88,8 @@ impl Config {
             oidc_client_id,
             oidc_client_secret,
             oidc_redirect_url,
+            oidc_login_label: std::env::var("OIDC_LOGIN_LABEL")
+                .unwrap_or_else(|_| "Sign in with Authentik".into()),
             peertube_url: std::env::var("PEERTUBE_URL").ok(),
             peertube_host: std::env::var("PEERTUBE_HOST").ok(),
             peertube_username: std::env::var("PEERTUBE_USERNAME").ok(),

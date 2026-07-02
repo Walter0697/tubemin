@@ -20,7 +20,7 @@ use std::sync::Arc;
 use axum::{routing::{get, post}, Router};
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::services::ServeDir;
-use tower_sessions::{MemoryStore, SessionManagerLayer};
+use tower_sessions::{MemoryStore, SessionManagerLayer, cookie::SameSite};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -104,15 +104,17 @@ async fn main() -> anyhow::Result<()> {
 
     // Session layer
     let session_store = MemoryStore::default();
-    let session_layer = SessionManagerLayer::new(session_store);
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_same_site(SameSite::Lax);
 
     // Auth routes depend on configured mode
     let auth_router: Router<state::AppState> = match config.auth_mode {
         config::AuthMode::Oidc => {
             tracing::info!("Auth mode: OIDC");
             Router::new()
-                .route("/auth/login", get(oidc::login))
+                .route("/auth/login", get(oidc::login_page).post(oidc::login))
                 .route("/auth/callback", get(oidc::callback))
+                .route("/auth/logout", get(oidc::logout))
         }
         config::AuthMode::Password => {
             tracing::info!("Auth mode: password");
