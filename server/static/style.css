@@ -825,3 +825,14 @@ a.card.card-selected {
   .filter-tab { min-height: 40px; }
   .pagination button { min-height: 40px; }
 }
+
+/* Phone: modals scroll instead of overflowing the viewport */
+@media (max-width: 600px) {
+  .modal-box {
+    max-height: 90dvh;
+    overflow-y: auto;
+  }
+  .detail-modal-body {
+    padding: 14px 16px 16px;
+  }
+}
