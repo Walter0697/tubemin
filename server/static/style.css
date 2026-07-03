@@ -816,3 +816,12 @@ a.card.card-selected {
     white-space: nowrap;
   }
 }
+
+/* Touch devices: no hover — checkboxes must be reachable */
+@media (hover: none) {
+  .card-checkbox { display: block; }   /* always visible → select mode reachable */
+  /* quick-delete stays hidden; touch deletes via select mode or detail modal */
+  .bulk-toolbar { flex-wrap: wrap; }
+  .filter-tab { min-height: 40px; }
+  .pagination button { min-height: 40px; }
+}
