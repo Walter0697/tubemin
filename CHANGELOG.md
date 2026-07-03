@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/Walter0697/tubemin/compare/v0.4.0...v0.5.0) (2026-07-03)
+
+
+### Features
+
+* configure PeerTube OIDC plugin natively at tubemin startup ([#10](https://github.com/Walter0697/tubemin/issues/10)) ([ec73310](https://github.com/Walter0697/tubemin/commit/ec733103b1543d0c2082d76ae1028761ed729ce9))
+
 ## [0.4.0](https://github.com/Walter0697/tubemin/compare/v0.3.1...v0.4.0) (2026-07-03)
 
 
