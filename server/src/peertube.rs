@@ -133,6 +133,111 @@ pub async fn ensure_account(
     Ok(())
 }
 
+const OIDC_PLUGIN: &str = "peertube-plugin-auth-openid-connect";
+
+/// Installs and configures PeerTube's OIDC login plugin, then enables
+/// `requiresAuth` so anonymous users can't browse without logging in.
+/// Idempotent — safe to call on every startup.
+pub async fn ensure_oidc_configured(
+    url: &str,
+    host_override: Option<&str>,
+    admin_username: &str,
+    admin_password: &str,
+    oidc_issuer_url: &str,
+    oidc_client_id: &str,
+    oidc_client_secret: &str,
+) -> Result<()> {
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
+    let client = Client::new();
+
+    // Auth as admin
+    let resp = client
+        .get(format!("{}/api/v1/oauth-clients/local", url))
+        .header("Host", &host)
+        .send().await?;
+    let body = resp.text().await?;
+    let oauth: OAuthClient = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
+
+    let resp = client
+        .post(format!("{}/api/v1/users/token", url))
+        .header("Host", &host)
+        .form(&[
+            ("client_id",     oauth.client_id.as_str()),
+            ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type",    "password"),
+            ("response_type", "code"),
+            ("username",      admin_username),
+            ("password",      admin_password),
+        ])
+        .send().await?;
+    let body = resp.text().await?;
+    let token: TokenResponse = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("admin token parse error ({e}): {body}"))?;
+
+    // Install the plugin — PeerTube returns 409 if it's already installed
+    let resp = client
+        .post(format!("{}/api/v1/plugins/install", url))
+        .header("Host", &host)
+        .bearer_auth(&token.access_token)
+        .json(&serde_json::json!({ "npmName": OIDC_PLUGIN }))
+        .send().await?;
+    let status = resp.status();
+    if !status.is_success() && status.as_u16() != 409 {
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("PeerTube plugin install failed ({}): {}", status, body));
+    }
+
+    // Configure the OIDC settings
+    let resp = client
+        .put(format!("{}/api/v1/plugins/{}/settings", url, OIDC_PLUGIN))
+        .header("Host", &host)
+        .bearer_auth(&token.access_token)
+        .json(&serde_json::json!({
+            "settings": {
+                "discover-url": oidc_issuer_url,
+                "client-id": oidc_client_id,
+                "client-secret": oidc_client_secret,
+                "scope": "openid email profile",
+                "auth-display-name": "Login with Authentik",
+            }
+        }))
+        .send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("PeerTube OIDC plugin settings update failed ({}): {}", status, body));
+    }
+
+    // Require login for anonymous visitors
+    let resp = client
+        .get(format!("{}/api/v1/config/custom", url))
+        .header("Host", &host)
+        .bearer_auth(&token.access_token)
+        .send().await?;
+    let body = resp.text().await?;
+    let mut current: serde_json::Value = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("config/custom parse error ({e}): {body}"))?;
+    current["instance"]["requiresAuth"] = serde_json::json!(true);
+
+    let resp = client
+        .put(format!("{}/api/v1/config/custom", url))
+        .header("Host", &host)
+        .bearer_auth(&token.access_token)
+        .json(&current)
+        .send().await?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("PeerTube config update failed ({}): {}", status, body));
+    }
+
+    tracing::info!("PeerTube OIDC plugin installed and configured; requiresAuth=true");
+    Ok(())
+}
+
 async fn set_bot_avatar(
     client: &Client,
     url: &str,
