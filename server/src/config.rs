@@ -28,6 +28,9 @@ pub struct Config {
     pub peertube_admin_username: Option<String>,
     pub peertube_admin_password: Option<String>,
     pub peertube_video_privacy: u8,
+    pub peertube_oidc_issuer_url: Option<String>,
+    pub peertube_oidc_client_id: Option<String>,
+    pub peertube_oidc_client_secret: Option<String>,
 }
 
 impl Config {
@@ -111,6 +114,9 @@ impl Config {
                 }
                 v
             },
+            peertube_oidc_issuer_url: std::env::var("PEERTUBE_OIDC_ISSUER_URL").ok(),
+            peertube_oidc_client_id: std::env::var("PEERTUBE_OIDC_CLIENT_ID").ok(),
+            peertube_oidc_client_secret: std::env::var("PEERTUBE_OIDC_CLIENT_SECRET").ok(),
         })
     }
 }

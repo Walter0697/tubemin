@@ -65,6 +65,28 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Auto-install & configure PeerTube's OIDC login plugin, and require login
+    if let (Some(url), Some(admin_user), Some(admin_pass), Some(issuer), Some(client_id), Some(client_secret)) = (
+        &config.peertube_url,
+        &config.peertube_admin_username,
+        &config.peertube_admin_password,
+        &config.peertube_oidc_issuer_url,
+        &config.peertube_oidc_client_id,
+        &config.peertube_oidc_client_secret,
+    ) {
+        if let Err(e) = peertube::ensure_oidc_configured(
+            url,
+            config.peertube_host.as_deref(),
+            admin_user,
+            admin_pass,
+            issuer,
+            client_id,
+            client_secret,
+        ).await {
+            tracing::warn!("PeerTube OIDC plugin setup failed (will retry on next start): {}", e);
+        }
+    }
+
     // Poll MeTube queue to transition pending → downloading
     poller::start(config.metube_url.clone(), pool.clone(), progress_map.clone());
 
