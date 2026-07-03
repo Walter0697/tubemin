@@ -760,3 +760,14 @@ a.card.card-selected {
   color: #fff;
   text-decoration: none;
 }
+
+/* ── Responsive ─────────────────────────────────── */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin-bottom: 24px;
+}
+.table-scroll .data-table {
+  min-width: 560px;
+  margin-bottom: 0;
+}
