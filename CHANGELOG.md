@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.0](https://github.com/Walter0697/tubemin/compare/v0.3.1...v0.4.0) (2026-07-03)
+
+
+### Features
+
+* PeerTube OIDC auto-setup and internal video privacy ([#9](https://github.com/Walter0697/tubemin/issues/9)) ([6069ae8](https://github.com/Walter0697/tubemin/commit/6069ae8f97234c2bc544b5ef0e0345b36d566264))
+* subtitle support via PeerTube captions API ([#7](https://github.com/Walter0697/tubemin/issues/7)) ([3374fb9](https://github.com/Walter0697/tubemin/commit/3374fb978b69c1d3692421e9ead83d16cb424725))
+
 ## [0.3.1](https://github.com/Walter0697/tubemin/compare/v0.3.0...v0.3.1) (2026-06-30)
 
 
