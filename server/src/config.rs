@@ -19,6 +19,7 @@ pub struct Config {
     pub oidc_client_id: Option<String>,
     pub oidc_client_secret: Option<String>,
     pub oidc_redirect_url: Option<String>,
+    pub oidc_login_label: String,
     pub peertube_url: Option<String>,
     pub peertube_host: Option<String>,
     pub peertube_username: Option<String>,
@@ -26,6 +27,7 @@ pub struct Config {
     pub peertube_admin_email: Option<String>,
     pub peertube_admin_username: Option<String>,
     pub peertube_admin_password: Option<String>,
+    pub peertube_video_privacy: u8,
 }
 
 impl Config {
@@ -86,6 +88,8 @@ impl Config {
             oidc_client_id,
             oidc_client_secret,
             oidc_redirect_url,
+            oidc_login_label: std::env::var("OIDC_LOGIN_LABEL")
+                .unwrap_or_else(|_| "Sign in with Authentik".into()),
             peertube_url: std::env::var("PEERTUBE_URL").ok(),
             peertube_host: std::env::var("PEERTUBE_HOST").ok(),
             peertube_username: std::env::var("PEERTUBE_USERNAME").ok(),
@@ -95,6 +99,18 @@ impl Config {
                 std::env::var("PEERTUBE_ADMIN_USERNAME").unwrap_or_else(|_| "root".into())
             ),
             peertube_admin_password: std::env::var("PEERTUBE_ADMIN_PASSWORD").ok(),
+            peertube_video_privacy: {
+                let v = std::env::var("PEERTUBE_VIDEO_PRIVACY")
+                    .ok()
+                    .and_then(|v| v.parse::<u8>().ok())
+                    .unwrap_or(4);
+                if !(1..=4).contains(&v) {
+                    return Err(anyhow::anyhow!(
+                        "PEERTUBE_VIDEO_PRIVACY must be 1-4 (got {})", v
+                    ));
+                }
+                v
+            },
         })
     }
 }
@@ -111,6 +127,7 @@ mod tests {
         std::env::remove_var("METUBE_URL");
         std::env::remove_var("DOWNLOADS_DIR");
         std::env::remove_var("PEERTUBE_IMPORT_DIR");
+        std::env::remove_var("PEERTUBE_VIDEO_PRIVACY");
     }
 
     #[test]
@@ -155,5 +172,49 @@ mod tests {
         assert!(matches!(config.auth_mode, AuthMode::Password));
         assert_eq!(config.admin_password.as_deref(), Some("hunter2"));
         assert!(config.oidc_issuer_url.is_none());
+    }
+
+    #[test]
+    fn default_video_privacy_is_internal() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_base_vars();
+        std::env::set_var("AUTH_MODE", "oidc");
+        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
+        std::env::set_var("OIDC_CLIENT_ID", "tubemin");
+        std::env::set_var("OIDC_CLIENT_SECRET", "secret");
+        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::remove_var("PEERTUBE_VIDEO_PRIVACY");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.peertube_video_privacy, 4);
+    }
+
+    #[test]
+    fn custom_video_privacy_is_read() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_base_vars();
+        std::env::set_var("AUTH_MODE", "oidc");
+        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
+        std::env::set_var("OIDC_CLIENT_ID", "tubemin");
+        std::env::set_var("OIDC_CLIENT_SECRET", "secret");
+        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var("PEERTUBE_VIDEO_PRIVACY", "1");
+
+        let config = Config::from_env().unwrap();
+        assert_eq!(config.peertube_video_privacy, 1);
+    }
+
+    #[test]
+    fn invalid_video_privacy_is_rejected() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_base_vars();
+        std::env::set_var("AUTH_MODE", "oidc");
+        std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
+        std::env::set_var("OIDC_CLIENT_ID", "tubemin");
+        std::env::set_var("OIDC_CLIENT_SECRET", "secret");
+        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var("PEERTUBE_VIDEO_PRIVACY", "5");
+
+        assert!(Config::from_env().is_err());
     }
 }

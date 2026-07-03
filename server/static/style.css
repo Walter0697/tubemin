@@ -80,6 +80,9 @@ nav {
   color: var(--text);
   border-bottom: 2px solid var(--accent);
 }
+.nav-spacer { flex: 1; }
+.nav-logout { color: var(--text-dim); font-size: 13px; }
+.nav-logout:hover { color: var(--text); }
 
 /* ── Page layout ────────────────────────────────── */
 .page {

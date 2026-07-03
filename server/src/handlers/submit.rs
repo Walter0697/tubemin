@@ -162,6 +162,7 @@ mod tests {
             oidc_client_id: None,
             oidc_client_secret: None,
             oidc_redirect_url: None,
+            oidc_login_label: "Sign in".into(),
             peertube_url: None,
             peertube_host: None,
             peertube_username: None,
@@ -169,6 +170,7 @@ mod tests {
             peertube_admin_email: None,
             peertube_admin_username: None,
             peertube_admin_password: None,
+            peertube_video_privacy: 4,
         });
 
         let state = AppState { pool: pool.clone(), config, progress: crate::progress::new_progress_map() };

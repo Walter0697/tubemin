@@ -16,7 +16,7 @@ notify = "6"
 bcrypt = "0.15"
 uuid = { version = "1", features = ["v4"] }
 tower-http = { version = "0.5", features = ["fs", "cors"] }
-tower-sessions = { version = "0.13", features = ["memory-store"] }
+tower-sessions = { version = "0.13", features = ["axum-core", "memory-store"] }
 openidconnect = "3"
 minijinja = { version = "2", features = ["loader"] }
 chrono = { version = "0.4", features = ["serde"] }
@@ -26,6 +26,7 @@ thiserror = "1"
 anyhow = "1"
 tokio-tungstenite = "0.23"
 futures-util = "0.3"
+tower-sessions-sqlx-store = { version = "0.14", features = ["sqlite"] }
 
 [dev-dependencies]
 axum-test = "15"

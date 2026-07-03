@@ -294,3 +294,13 @@ input::placeholder { color: var(--text-dim); }
 }
 #settings-status.ok  { color: var(--status-ok); }
 #settings-status.err { color: var(--status-err); }
+
+/* ── Server offline state ───────────────────────── */
+body.server-offline .popup-content {
+  opacity: 0.45;
+  pointer-events: none;
+}
+body.server-offline #hint {
+  pointer-events: auto;
+  opacity: 1;
+}

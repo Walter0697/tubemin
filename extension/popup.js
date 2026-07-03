@@ -140,6 +140,21 @@ function showListMode(videos) {
   updateQueueBtn();
 }
 
+// ── Health check ───────────────────────────────────────────────────────────
+
+async function checkServerHealth() {
+  if (!serverUrl) return;
+  try {
+    const resp = await fetch(`${serverUrl}/health`, { signal: AbortSignal.timeout(4000) });
+    if (!resp.ok) throw new Error();
+    document.body.classList.remove('server-offline');
+  } catch {
+    document.body.classList.add('server-offline');
+    sendBtn.disabled = true;
+    setHint('Server is unreachable.', true);
+  }
+}
+
 // ── URL mode ───────────────────────────────────────────────────────────────
 
 async function validateConnection() {
@@ -235,6 +250,7 @@ Promise.all([
     });
   }),
 ]).then(async () => {
+  await checkServerHealth();
   if (currentHostname) {
     const videos = await getVideos(currentHostname);
     const filtered = minDurationSec > 0
