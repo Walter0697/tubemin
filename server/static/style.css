@@ -799,3 +799,20 @@ a.card.card-selected {
     margin: 0 16px;
   }
 }
+
+/* Phone: filter tabs — one swipeable row (YouTube-chips style) */
+@media (max-width: 600px) {
+  .filter-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;          /* Firefox */
+    margin: 0 -16px;                /* bleed to page edges */
+    padding: 0 16px 4px;
+  }
+  .filter-tabs::-webkit-scrollbar { display: none; }
+  .filter-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
