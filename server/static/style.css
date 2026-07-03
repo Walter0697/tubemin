@@ -794,10 +794,15 @@ a.card.card-selected {
   }
   .nav-logo { margin-right: 0; }
   .login-card {
-    width: 100%;
+    width: calc(100% - 32px);
     max-width: 340px;
     margin: 0 16px;
   }
+}
+
+/* Narrow tablet: let filter tabs wrap so they never overflow the page */
+@media (min-width: 601px) and (max-width: 900px) {
+  .filter-tabs { flex-wrap: wrap; }
 }
 
 /* Phone: filter tabs — one swipeable row (YouTube-chips style) */
