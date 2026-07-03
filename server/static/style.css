@@ -771,3 +771,31 @@ a.card.card-selected {
   min-width: 560px;
   margin-bottom: 0;
 }
+
+/* Tablet: 2-column card grid */
+@media (max-width: 900px) {
+  .card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Phone */
+@media (max-width: 600px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+  .page {
+    margin: 20px auto;
+    padding: 0 16px;
+  }
+  nav {
+    gap: 14px;
+    padding: 10px 16px;
+  }
+  .nav-logo { margin-right: 0; }
+  .login-card {
+    width: 100%;
+    max-width: 340px;
+    margin: 0 16px;
+  }
+}
