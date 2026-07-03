@@ -20,7 +20,8 @@ use std::sync::Arc;
 use axum::{routing::{get, post}, Router};
 use tower_http::cors::{CorsLayer, Any};
 use tower_http::services::ServeDir;
-use tower_sessions::{MemoryStore, SessionManagerLayer, cookie::SameSite};
+use tower_sessions::{SessionManagerLayer, cookie::SameSite};
+use tower_sessions_sqlx_store::SqliteStore;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -102,8 +103,9 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Session layer
-    let session_store = MemoryStore::default();
+    // Session layer — backed by the existing SQLite DB so sessions survive restarts
+    let session_store = SqliteStore::new((*pool).clone());
+    session_store.migrate().await?;
     let session_layer = SessionManagerLayer::new(session_store)
         .with_same_site(SameSite::Lax);
 
