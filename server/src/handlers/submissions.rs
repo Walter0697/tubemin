@@ -50,7 +50,7 @@ pub struct ListResponse {
 }
 
 pub async fn list_submissions(
-    RequireAuth(_user): RequireAuth,
+    RequireAuth(user): RequireAuth,
     State(state): State<AppState>,
     Query(q): Query<ListQuery>,
 ) -> impl IntoResponse {
@@ -59,7 +59,17 @@ pub async fn list_submissions(
     let status_filter = q.status.as_deref().filter(|s| *s != "all");
     let search = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
-    match db::list_submissions_paged(&state.pool, page, per_page, status_filter, search).await {
+    match db::list_submissions_paged(
+        &state.pool,
+        user.stable_subject(),
+        user.owner_display(),
+        page,
+        per_page,
+        status_filter,
+        search,
+    )
+    .await
+    {
         Ok((rows, total, counts)) => {
             let submissions = rows
                 .into_iter()
@@ -104,7 +114,7 @@ pub struct DeleteRequest {
 }
 
 pub async fn delete_submissions(
-    RequireAuth(_user): RequireAuth,
+    RequireAuth(user): RequireAuth,
     State(state): State<AppState>,
     Json(body): Json<DeleteRequest>,
 ) -> impl IntoResponse {
@@ -116,7 +126,14 @@ pub async fn delete_submissions(
             .into_response();
     }
 
-    let uuids = match db::delete_submissions(&state.pool, &body.ids).await {
+    let uuids = match db::delete_submissions_owned(
+        &state.pool,
+        &body.ids,
+        user.stable_subject(),
+        user.owner_display(),
+    )
+    .await
+    {
         Ok(u) => u,
         Err(e) => {
             tracing::error!("DB error deleting submissions: {e}");
@@ -127,6 +144,14 @@ pub async fn delete_submissions(
                 .into_response();
         }
     };
+
+    if uuids.len() != body.ids.len() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "cannot delete submissions you do not own"})),
+        )
+            .into_response();
+    }
 
     // Best-effort delete from PeerTube; failures are logged but don't block the response
     if let (Some(pt_url), Some(pt_user), Some(pt_pass)) = (

@@ -1,6 +1,9 @@
-use axum::{extract::{State, Request}, response::Html};
-use minijinja::Environment;
 use crate::{db, oidc::RequireAuth, state::AppState};
+use axum::{
+    extract::{Request, State},
+    response::Html,
+};
+use minijinja::Environment;
 
 static DASHBOARD_ENV: std::sync::OnceLock<Environment<'static>> = std::sync::OnceLock::new();
 
@@ -8,8 +11,10 @@ fn dashboard_env() -> &'static Environment<'static> {
     DASHBOARD_ENV.get_or_init(|| {
         let mut env = Environment::new();
         env.set_auto_escape_callback(|_| minijinja::AutoEscape::Html);
-        env.add_template("nav", include_str!("../../templates/partials/nav.html")).unwrap();
-        env.add_template("dashboard", include_str!("../../templates/dashboard.html")).unwrap();
+        env.add_template("nav", include_str!("../../templates/partials/nav.html"))
+            .unwrap();
+        env.add_template("dashboard", include_str!("../../templates/dashboard.html"))
+            .unwrap();
         env
     })
 }
@@ -19,16 +24,22 @@ pub async fn dashboard(
     State(state): State<AppState>,
     req: Request,
 ) -> Html<String> {
-    let submissions = db::list_submissions(&state.pool).await.unwrap_or_default();
+    let submissions =
+        db::list_submissions_owned(&state.pool, user.stable_subject(), user.owner_display())
+            .await
+            .unwrap_or_default();
 
     // Mirror the scheme of the incoming request: Caddy sets X-Forwarded-Proto: https
     // in production; local dev has no such header so we fall back to http.
-    let scheme = req.headers()
+    let scheme = req
+        .headers()
         .get("x-forwarded-proto")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("http");
 
-    let peertube_base = state.config.peertube_host
+    let peertube_base = state
+        .config
+        .peertube_host
         .as_ref()
         .map(|h| format!("{}://{}", scheme, h))
         .unwrap_or_default();
@@ -48,7 +59,10 @@ pub async fn dashboard(
         }).collect::<Vec<_>>(),
     };
 
-    Html(tmpl.render(ctx).unwrap_or_else(|e| format!("Template error: {}", e)))
+    Html(
+        tmpl.render(ctx)
+            .unwrap_or_else(|e| format!("Template error: {}", e)),
+    )
 }
 
 #[cfg(test)]

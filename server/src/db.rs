@@ -77,22 +77,48 @@ pub async fn set_peertube_thumb(
     Ok(())
 }
 
-pub async fn delete_submissions(
+pub async fn delete_submissions_owned(
     pool: &SqlitePool,
     ids: &[String],
+    owner_sub: Option<&str>,
+    owner_display: &str,
 ) -> Result<Vec<Option<String>>, sqlx::Error> {
     let mut uuids = Vec::new();
     for id in ids {
-        let row: Option<(Option<String>,)> =
-            sqlx::query_as("SELECT peertube_uuid FROM submissions WHERE id = ?")
-                .bind(id)
-                .fetch_optional(pool)
-                .await?;
-        uuids.push(row.and_then(|(u,)| u));
-        sqlx::query("DELETE FROM submissions WHERE id = ?")
+        let row: Option<(Option<String>,)> = if let Some(sub) = owner_sub {
+            sqlx::query_as(
+                "SELECT peertube_uuid FROM submissions WHERE id = ? AND submitter_sub = ?",
+            )
             .bind(id)
-            .execute(pool)
-            .await?;
+            .bind(sub)
+            .fetch_optional(pool)
+            .await?
+        } else {
+            sqlx::query_as(
+                "SELECT peertube_uuid FROM submissions WHERE id = ? AND submitter_sub IS NULL AND submitter_display = ?",
+            )
+            .bind(id)
+            .bind(owner_display)
+            .fetch_optional(pool)
+            .await?
+        };
+        let Some((uuid,)) = row else {
+            return Ok(Vec::new());
+        };
+        uuids.push(uuid);
+        if let Some(sub) = owner_sub {
+            sqlx::query("DELETE FROM submissions WHERE id = ? AND submitter_sub = ?")
+                .bind(id)
+                .bind(sub)
+                .execute(pool)
+                .await?;
+        } else {
+            sqlx::query("DELETE FROM submissions WHERE id = ? AND submitter_sub IS NULL AND submitter_display = ?")
+                .bind(id)
+                .bind(owner_display)
+                .execute(pool)
+                .await?;
+        }
     }
     Ok(uuids)
 }
@@ -311,6 +337,28 @@ pub async fn reset_submission_to_pending(
     Ok(result.rows_affected() > 0)
 }
 
+pub async fn list_submissions_owned(
+    pool: &SqlitePool,
+    owner_sub: Option<&str>,
+    owner_display: &str,
+) -> Result<Vec<Submission>, sqlx::Error> {
+    if let Some(sub) = owner_sub {
+        Ok(sqlx::query_as::<_, Submission>(
+            "SELECT * FROM submissions WHERE submitter_sub = ? ORDER BY submitted_at DESC",
+        )
+        .bind(sub)
+        .fetch_all(pool)
+        .await?)
+    } else {
+        Ok(sqlx::query_as::<_, Submission>(
+            "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? ORDER BY submitted_at DESC",
+        )
+        .bind(owner_display)
+        .fetch_all(pool)
+        .await?)
+    }
+}
+
 pub async fn list_submissions(pool: &SqlitePool) -> Result<Vec<Submission>, sqlx::Error> {
     Ok(
         sqlx::query_as::<_, Submission>("SELECT * FROM submissions ORDER BY submitted_at DESC")
@@ -327,6 +375,8 @@ struct StatusCount {
 
 pub async fn list_submissions_paged(
     pool: &SqlitePool,
+    owner_sub: Option<&str>,
+    owner_display: &str,
     page: u32,
     per_page: u32,
     status: Option<&str>,
@@ -335,60 +385,102 @@ pub async fn list_submissions_paged(
     let offset = (page.saturating_sub(1)) as i64 * per_page as i64;
     let like = search.map(|q| format!("%{}%", q));
 
-    let (rows, total) = match (status, like.as_deref()) {
-        (Some(s), Some(q)) => {
+    let (rows, total) = match (owner_sub, status, like.as_deref()) {
+        (Some(owner), Some(s), Some(q)) => {
             let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM submissions WHERE status = ? AND (title LIKE ? OR url LIKE ?)"
-            ).bind(s).bind(q).bind(q).fetch_one(pool).await?;
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub = ? AND status = ? AND (title LIKE ? OR url LIKE ?)",
+            ).bind(owner).bind(s).bind(q).bind(q).fetch_one(pool).await?;
             let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions WHERE status = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?"
-            ).bind(s).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+                "SELECT * FROM submissions WHERE submitter_sub = ? AND status = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner).bind(s).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
             (rows, total)
         }
-        (Some(s), None) => {
-            let total: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM submissions WHERE status = ?")
-                    .bind(s)
-                    .fetch_one(pool)
-                    .await?;
-            let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions WHERE status = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?"
-            ).bind(s).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
-            (rows, total)
-        }
-        (None, Some(q)) => {
+        (Some(owner), Some(s), None) => {
             let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM submissions WHERE title LIKE ? OR url LIKE ?",
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub = ? AND status = ?",
             )
-            .bind(q)
-            .bind(q)
+            .bind(owner)
+            .bind(s)
             .fetch_one(pool)
             .await?;
             let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions WHERE title LIKE ? OR url LIKE ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?"
-            ).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+                "SELECT * FROM submissions WHERE submitter_sub = ? AND status = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner).bind(s).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
             (rows, total)
         }
-        (None, None) => {
-            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM submissions")
-                .fetch_one(pool)
-                .await?;
+        (Some(owner), None, Some(q)) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub = ? AND (title LIKE ? OR url LIKE ?)",
+            ).bind(owner).bind(q).bind(q).fetch_one(pool).await?;
             let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
-            )
-            .bind(per_page as i64)
-            .bind(offset)
-            .fetch_all(pool)
-            .await?;
+                "SELECT * FROM submissions WHERE submitter_sub = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (Some(owner), None, None) => {
+            let total: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM submissions WHERE submitter_sub = ?")
+                    .bind(owner)
+                    .fetch_one(pool)
+                    .await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE submitter_sub = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (None, Some(s), Some(q)) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status = ? AND (title LIKE ? OR url LIKE ?)",
+            ).bind(owner_display).bind(s).bind(q).bind(q).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner_display).bind(s).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (None, Some(s), None) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status = ?",
+            ).bind(owner_display).bind(s).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner_display).bind(s).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (None, None, Some(q)) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND (title LIKE ? OR url LIKE ?)",
+            ).bind(owner_display).bind(q).bind(q).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner_display).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
+            (rows, total)
+        }
+        (None, None, None) => {
+            let total: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ?",
+            ).bind(owner_display).fetch_one(pool).await?;
+            let rows = sqlx::query_as::<_, Submission>(
+                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+            ).bind(owner_display).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
             (rows, total)
         }
     };
 
-    let count_rows = sqlx::query_as::<_, StatusCount>(
-        "SELECT status, COUNT(*) as count FROM submissions GROUP BY status",
-    )
-    .fetch_all(pool)
-    .await?;
+    let count_rows = if let Some(sub) = owner_sub {
+        sqlx::query_as::<_, StatusCount>(
+            "SELECT status, COUNT(*) as count FROM submissions WHERE submitter_sub = ? GROUP BY status",
+        )
+        .bind(sub)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, StatusCount>(
+            "SELECT status, COUNT(*) as count FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? GROUP BY status",
+        )
+        .bind(owner_display)
+        .fetch_all(pool)
+        .await?
+    };
     let mut counts: std::collections::HashMap<String, i64> = count_rows
         .into_iter()
         .map(|r| (r.status, r.count))
@@ -583,5 +675,89 @@ mod tests {
             .unwrap();
         assert_eq!(display.as_deref(), Some("Walter"));
         assert_eq!(tag.as_deref(), Some("walter"));
+    }
+
+    #[tokio::test]
+    async fn list_submissions_owned_only_returns_matching_owner() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "user-1-sub",
+            "https://example.com/u1",
+            None,
+            false,
+            None,
+            Some("key-1"),
+            Some("user-1"),
+            Some("Walter"),
+            Some("walter"),
+        )
+        .await
+        .unwrap();
+        create_submission(
+            &pool,
+            "user-2-sub",
+            "https://example.com/u2",
+            None,
+            false,
+            None,
+            Some("key-2"),
+            Some("user-2"),
+            Some("Alice"),
+            Some("alice"),
+        )
+        .await
+        .unwrap();
+
+        let rows = list_submissions_owned(&pool, Some("user-1"), "Walter")
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, "user-1-sub");
+    }
+
+    #[tokio::test]
+    async fn delete_submissions_owned_rejects_foreign_rows() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "user-1-sub",
+            "https://example.com/u1",
+            None,
+            false,
+            None,
+            Some("key-1"),
+            Some("user-1"),
+            Some("Walter"),
+            Some("walter"),
+        )
+        .await
+        .unwrap();
+        create_submission(
+            &pool,
+            "user-2-sub",
+            "https://example.com/u2",
+            None,
+            false,
+            None,
+            Some("key-2"),
+            Some("user-2"),
+            Some("Alice"),
+            Some("alice"),
+        )
+        .await
+        .unwrap();
+
+        let deleted = delete_submissions_owned(
+            &pool,
+            &[String::from("user-2-sub")],
+            Some("user-1"),
+            "Walter",
+        )
+        .await
+        .unwrap();
+        assert!(deleted.is_empty());
+        let rows = list_submissions(&pool).await.unwrap();
+        assert_eq!(rows.len(), 2);
     }
 }

@@ -39,6 +39,10 @@ impl OidcUser {
         self.sub.as_deref()
     }
 
+    pub fn owner_display(&self) -> &str {
+        self.display_name()
+    }
+
     pub fn submitter_tag(&self) -> String {
         let raw = self
             .username
