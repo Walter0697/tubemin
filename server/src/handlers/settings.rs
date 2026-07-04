@@ -1,10 +1,10 @@
+use crate::{api_keys, oidc::RequireAuth, state::AppState};
 use axum::{
     extract::{Form, Path, Query, State},
     response::{Html, Redirect},
 };
 use minijinja::Environment;
 use serde::Deserialize;
-use crate::{api_keys, oidc::RequireAuth, state::AppState};
 
 #[derive(Deserialize)]
 pub struct NewKeyQuery {
@@ -38,12 +38,16 @@ pub async fn settings(
         }
     };
 
-    let keys = api_keys::list(&state.pool).await.unwrap_or_default();
+    let keys = api_keys::list_by_owner(&state.pool, user.stable_subject(), user.display_name())
+        .await
+        .unwrap_or_default();
 
     let mut env = Environment::new();
     env.set_auto_escape_callback(|_| minijinja::AutoEscape::Html);
-    env.add_template("nav", include_str!("../../templates/partials/nav.html")).unwrap();
-    env.add_template("settings", include_str!("../../templates/settings.html")).unwrap();
+    env.add_template("nav", include_str!("../../templates/partials/nav.html"))
+        .unwrap();
+    env.add_template("settings", include_str!("../../templates/settings.html"))
+        .unwrap();
     let tmpl = env.get_template("settings").unwrap();
 
     let ctx = minijinja::context! {
@@ -54,16 +58,20 @@ pub async fn settings(
         api_keys => keys.iter().map(|k| minijinja::context! {
             id => k.id,
             label => k.label,
+            owner_display => k.owner_display,
             created_at => k.created_at,
             last_used_at => k.last_used_at,
         }).collect::<Vec<_>>(),
     };
 
-    Html(tmpl.render(ctx).unwrap_or_else(|e| format!("Template error: {}", e)))
+    Html(
+        tmpl.render(ctx)
+            .unwrap_or_else(|e| format!("Template error: {}", e)),
+    )
 }
 
 pub async fn generate_key(
-    RequireAuth(_user): RequireAuth,
+    RequireAuth(user): RequireAuth,
     State(state): State<AppState>,
     session: tower_sessions::Session,
     Form(form): Form<CsrfForm>,
@@ -73,14 +81,23 @@ pub async fn generate_key(
     if stored.as_deref() != Some(&form.csrf_token) {
         return Redirect::to("/settings");
     }
-    match api_keys::generate(&state.pool, Some("web-generated")).await {
+    match api_keys::generate(
+        &state.pool,
+        Some("web-generated"),
+        api_keys::ApiKeyOwner {
+            sub: user.stable_subject(),
+            display: user.display_name(),
+        },
+    )
+    .await
+    {
         Ok(plaintext) => Redirect::to(&format!("/settings?new_key={}", plaintext)),
         Err(_) => Redirect::to("/settings"),
     }
 }
 
 pub async fn revoke_key(
-    RequireAuth(_user): RequireAuth,
+    RequireAuth(user): RequireAuth,
     State(state): State<AppState>,
     session: tower_sessions::Session,
     Path(id): Path<String>,
@@ -91,6 +108,7 @@ pub async fn revoke_key(
     if stored.as_deref() != Some(&form.csrf_token) {
         return Redirect::to("/settings");
     }
-    let _ = api_keys::revoke(&state.pool, &id).await;
+    let _ = api_keys::revoke_by_owner(&state.pool, &id, user.stable_subject(), user.display_name())
+        .await;
     Redirect::to("/settings")
 }

@@ -33,6 +33,7 @@
           <tr>
             <th>ID</th>
             <th>Label</th>
+            <th>Owner</th>
             <th>Created</th>
             <th>Last Used</th>
             <th></th>
@@ -43,6 +44,7 @@
           <tr>
             <td class="key-id">{{ key.id[:8] }}</td>
             <td>{{ key.label | default("-") }}</td>
+            <td>{{ key.owner_display | default("-") }}</td>
             <td>{{ key.created_at }}</td>
             <td>{{ key.last_used_at | default("never") }}</td>
             <td>
@@ -54,7 +56,7 @@
           </tr>
           {% else %}
           <tr>
-            <td colspan="5" class="empty-cell">No API keys yet.</td>
+            <td colspan="6" class="empty-cell">No API keys yet.</td>
           </tr>
           {% endfor %}
         </tbody>

@@ -292,6 +292,11 @@
         addRow('Updated', relTime(s.updated_at) + ' <span style="color:var(--text-dim)">(' + new Date(s.updated_at).toLocaleString() + ')</span>');
       }
 
+      if (s.submitter_display) {
+        const tagText = s.submitter_tag ? ' <span style="color:var(--text-dim)">(submitter:' + escHtml(s.submitter_tag) + ')</span>' : '';
+        addRow('Submitted by', escHtml(s.submitter_display) + tagText);
+      }
+
       // Action buttons
       acts.innerHTML = '';
       if (s.peertube_uuid && PEERTUBE_BASE) {

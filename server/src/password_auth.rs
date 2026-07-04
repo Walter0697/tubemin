@@ -30,15 +30,21 @@ pub async fn login_submit(
         session
             .insert(
                 SESSION_USER_KEY,
-                OidcUser { email: "admin".into(), username: Some("admin".into()) },
+                OidcUser {
+                    sub: Some("password-admin".into()),
+                    email: "admin".into(),
+                    username: Some("admin".into()),
+                },
             )
             .await
             .ok();
         Redirect::to("/dashboard").into_response()
     } else {
-        Html(include_str!("../templates/login.html")
-            .replace("<!--ERROR-->", r#"<p class="error">Invalid password.</p>"#))
-            .into_response()
+        Html(
+            include_str!("../templates/login.html")
+                .replace("<!--ERROR-->", r#"<p class="error">Invalid password.</p>"#),
+        )
+        .into_response()
     }
 }
 

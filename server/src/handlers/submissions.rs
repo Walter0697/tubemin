@@ -1,3 +1,4 @@
+use crate::{db, oidc::RequireAuth, state::AppState};
 use axum::{
     extract::{Query, State},
     http::StatusCode,
@@ -5,7 +6,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use crate::{db, oidc::RequireAuth, state::AppState};
 
 #[derive(Deserialize)]
 pub struct ListQuery {
@@ -16,8 +16,12 @@ pub struct ListQuery {
     pub status: Option<String>,
     pub q: Option<String>,
 }
-fn default_page() -> u32 { 1 }
-fn default_per_page() -> u32 { 24 }
+fn default_page() -> u32 {
+    1
+}
+fn default_per_page() -> u32 {
+    24
+}
 
 #[derive(Serialize)]
 pub struct SubmissionRow {
@@ -28,6 +32,8 @@ pub struct SubmissionRow {
     pub filename: Option<String>,
     pub peertube_thumb: Option<String>,
     pub peertube_uuid: Option<String>,
+    pub submitter_display: Option<String>,
+    pub submitter_tag: Option<String>,
     pub status: String,
     pub progress: Option<f32>,
     pub submitted_at: String,
@@ -55,23 +61,35 @@ pub async fn list_submissions(
 
     match db::list_submissions_paged(&state.pool, page, per_page, status_filter, search).await {
         Ok((rows, total, counts)) => {
-            let submissions = rows.into_iter().map(|s| {
-                let progress = crate::progress::get(&state.progress, &s.id);
-                SubmissionRow {
-                    id: s.id,
-                    url: s.url,
-                    source_url: s.source_url,
-                    title: s.title,
-                    filename: s.filename,
-                    peertube_thumb: s.peertube_thumb,
-                    peertube_uuid: s.peertube_uuid,
-                    status: s.status,
-                    progress,
-                    submitted_at: s.submitted_at,
-                    updated_at: s.updated_at,
-                }
-            }).collect();
-            Json(ListResponse { submissions, total, page, per_page, counts }).into_response()
+            let submissions = rows
+                .into_iter()
+                .map(|s| {
+                    let progress = crate::progress::get(&state.progress, &s.id);
+                    SubmissionRow {
+                        id: s.id,
+                        url: s.url,
+                        source_url: s.source_url,
+                        title: s.title,
+                        filename: s.filename,
+                        peertube_thumb: s.peertube_thumb,
+                        peertube_uuid: s.peertube_uuid,
+                        submitter_display: s.submitter_display,
+                        submitter_tag: s.submitter_tag,
+                        status: s.status,
+                        progress,
+                        submitted_at: s.submitted_at,
+                        updated_at: s.updated_at,
+                    }
+                })
+                .collect();
+            Json(ListResponse {
+                submissions,
+                total,
+                page,
+                per_page,
+                counts,
+            })
+            .into_response()
         }
         Err(e) => {
             tracing::error!("DB error listing submissions: {e}");
@@ -91,14 +109,22 @@ pub async fn delete_submissions(
     Json(body): Json<DeleteRequest>,
 ) -> impl IntoResponse {
     if body.ids.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "no ids provided"}))).into_response();
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "no ids provided"})),
+        )
+            .into_response();
     }
 
     let uuids = match db::delete_submissions(&state.pool, &body.ids).await {
         Ok(u) => u,
         Err(e) => {
             tracing::error!("DB error deleting submissions: {e}");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": "db error"}))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "db error"})),
+            )
+                .into_response();
         }
     };
 
@@ -114,12 +140,18 @@ pub async fn delete_submissions(
             let user = pt_user.clone();
             let pass = pt_pass.clone();
             tokio::spawn(async move {
-                if let Err(e) = crate::peertube::delete_video(&url, host.as_deref(), &user, &pass, &uuid).await {
+                if let Err(e) =
+                    crate::peertube::delete_video(&url, host.as_deref(), &user, &pass, &uuid).await
+                {
                     tracing::warn!("PeerTube delete failed for {}: {}", uuid, e);
                 }
             });
         }
     }
 
-    (StatusCode::OK, Json(serde_json::json!({"deleted": body.ids.len()}))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"deleted": body.ids.len()})),
+    )
+        .into_response()
 }

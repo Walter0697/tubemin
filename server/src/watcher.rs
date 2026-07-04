@@ -1,7 +1,7 @@
+use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use sqlx::SqlitePool;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tracing::{error, info};
@@ -31,13 +31,16 @@ pub fn start(
         let watch_dir = downloads_dir.clone();
         let tx2 = tx.clone();
         std::thread::spawn(move || {
-            use notify::{Watcher, RecursiveMode, recommended_watcher, Event, EventKind};
             use notify::event::CreateKind;
+            use notify::{recommended_watcher, Event, EventKind, RecursiveMode, Watcher};
 
             let tx3 = tx2.clone();
             let mut watcher = match recommended_watcher(move |res: notify::Result<Event>| {
                 if let Ok(event) = res {
-                    if matches!(event.kind, EventKind::Create(CreateKind::File) | EventKind::Modify(_)) {
+                    if matches!(
+                        event.kind,
+                        EventKind::Create(CreateKind::File) | EventKind::Modify(_)
+                    ) {
                         for path in event.paths {
                             let _ = tx3.send(path);
                         }
@@ -52,13 +55,18 @@ pub fn start(
             };
 
             if let Err(e) = watcher.watch(&watch_dir, RecursiveMode::NonRecursive) {
-                error!("Failed to watch {}: {e}. Falling back to poll only.", watch_dir.display());
+                error!(
+                    "Failed to watch {}: {e}. Falling back to poll only.",
+                    watch_dir.display()
+                );
                 return;
             }
 
             info!("Watching {} for new files", watch_dir.display());
             // Keep thread alive (watcher drops when thread exits)
-            loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(3600));
+            }
         });
 
         // Fallback: also scan every 30s to catch anything inotify missed
@@ -84,14 +92,23 @@ pub fn start(
         }
 
         while let Some(path) = rx.recv().await {
-            if !path.is_file() || is_temp_file(&path) || is_image_file(&path) || is_subtitle_file(&path) || seen.contains(&path) {
+            if !path.is_file()
+                || is_temp_file(&path)
+                || is_image_file(&path)
+                || is_subtitle_file(&path)
+                || seen.contains(&path)
+            {
                 continue;
             }
             seen.insert(path.clone());
 
             // Read thumbnail bytes before the video is moved out of /downloads
             let thumbnail = crate::video_meta::find_thumbnail_path(&path).and_then(|tp| {
-                let mime = if tp.extension().map_or(false, |e| e == "webp") { "image/webp" } else { "image/jpeg" };
+                let mime = if tp.extension().map_or(false, |e| e == "webp") {
+                    "image/webp"
+                } else {
+                    "image/jpeg"
+                };
                 std::fs::read(&tp).ok().map(|bytes| {
                     let _ = std::fs::remove_file(&tp);
                     (bytes, mime.to_string())
@@ -116,26 +133,60 @@ pub fn start(
                 let mut meta = meta;
                 if meta.title.is_none() {
                     let fname = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    if let Ok(title) = crate::db::get_title_by_filename(pool.as_ref(), fname).await {
+                    if let Ok(title) = crate::db::get_title_by_filename(pool.as_ref(), fname).await
+                    {
                         meta.title = title;
                     }
                 }
-                match crate::peertube::upload(&pt.url, pt.host.as_deref(), &pt.username, &pt.password, pt.privacy, &dest, &meta, thumb_arg).await {
+                let fname = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                let (submitter_display, submitter_tag) =
+                    crate::db::get_submitter_by_filename(pool.as_ref(), fname)
+                        .await
+                        .unwrap_or((None, None));
+                match crate::peertube::upload(
+                    &pt.url,
+                    pt.host.as_deref(),
+                    &pt.username,
+                    &pt.password,
+                    pt.privacy,
+                    &dest,
+                    &meta,
+                    thumb_arg,
+                    submitter_display.as_deref(),
+                    submitter_tag.as_deref(),
+                )
+                .await
+                {
                     Ok((preview_path, peertube_uuid)) => {
                         info!("Uploaded {} to PeerTube", dest.display());
-                        let filename = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        if let Err(e) = crate::db::set_peertube_thumb(&pool, filename, &preview_path, &peertube_uuid).await {
-                            error!("db error storing peertube thumb for {}: {}", filename, e);
+                        if let Err(e) = crate::db::set_peertube_thumb(
+                            &pool,
+                            fname,
+                            &preview_path,
+                            &peertube_uuid,
+                        )
+                        .await
+                        {
+                            error!("db error storing peertube thumb for {}: {}", fname, e);
                         }
                         // Upload subtitle captions to PeerTube
                         if !subtitles.is_empty() {
-                            let caption_data: Vec<(String, Vec<u8>)> = subtitles.iter()
-                                .filter_map(|(lang, p)| std::fs::read(p).ok().map(|b| (lang.clone(), b)))
+                            let caption_data: Vec<(String, Vec<u8>)> = subtitles
+                                .iter()
+                                .filter_map(|(lang, p)| {
+                                    std::fs::read(p).ok().map(|b| (lang.clone(), b))
+                                })
                                 .collect();
                             if let Err(e) = crate::peertube::upload_captions(
-                                &pt.url, pt.host.as_deref(), &pt.username, &pt.password,
-                                &peertube_uuid, &caption_data,
-                            ).await {
+                                &pt.url,
+                                pt.host.as_deref(),
+                                &pt.username,
+                                &pt.password,
+                                &peertube_uuid,
+                                &caption_data,
+                            )
+                            .await
+                            {
                                 error!("Caption upload failed for {}: {}", peertube_uuid, e);
                             }
                         }
@@ -174,12 +225,16 @@ fn find_subtitle_sidecars(video_path: &std::path::Path) -> Vec<(String, std::pat
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !is_subtitle_file(&path) { continue; }
+            if !is_subtitle_file(&path) {
+                continue;
+            }
             let fname = match path.file_name().and_then(|n| n.to_str()) {
                 Some(n) => n.to_string(),
                 None => continue,
             };
-            if !fname.starts_with(&prefix) { continue; }
+            if !fname.starts_with(&prefix) {
+                continue;
+            }
             // "My Video.en.vtt" → rest after prefix = "en.vtt"
             let rest = &fname[prefix.len()..];
             if let Some(dot) = rest.rfind('.') {
@@ -211,7 +266,10 @@ pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
         return true;
     }
     // yt-dlp adaptive stream fragments before ffmpeg merge: video.f251.webm, video.f399.mp4
-    if let Some(stem_ext) = std::path::Path::new(stem).extension().and_then(|e| e.to_str()) {
+    if let Some(stem_ext) = std::path::Path::new(stem)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
         if stem_ext.starts_with('f') && stem_ext[1..].chars().all(|c| c.is_ascii_digit()) {
             return true;
         }
@@ -239,8 +297,12 @@ pub(crate) async fn handle_new_file(
             let _ = tokio::fs::remove_file(path.with_extension("info.json")).await;
             // Skip mark_imported if a direct download already claimed this filename
             let already: Option<i64> = sqlx::query_scalar(
-                "SELECT 1 FROM submissions WHERE filename = ? AND status = 'imported'"
-            ).bind(&filename).fetch_optional(pool).await.unwrap_or(None);
+                "SELECT 1 FROM submissions WHERE filename = ? AND status = 'imported'",
+            )
+            .bind(&filename)
+            .fetch_optional(pool)
+            .await
+            .unwrap_or(None);
             if already.is_none() {
                 let _ = crate::db::mark_imported(pool, &filename).await;
             }
@@ -262,11 +324,21 @@ mod tests {
     fn temp_file_detection() {
         assert!(is_temp_file(std::path::Path::new("/downloads/video.part")));
         assert!(is_temp_file(std::path::Path::new("/downloads/video.ytdl")));
-        assert!(is_temp_file(std::path::Path::new("/downloads/video.temp.webm")));
-        assert!(is_temp_file(std::path::Path::new("/downloads/video.temp.mp4")));
-        assert!(is_temp_file(std::path::Path::new("/downloads/video.f251.webm")));
-        assert!(is_temp_file(std::path::Path::new("/downloads/video.f399.mp4")));
-        assert!(is_temp_file(std::path::Path::new("/downloads/video.info.json")));
+        assert!(is_temp_file(std::path::Path::new(
+            "/downloads/video.temp.webm"
+        )));
+        assert!(is_temp_file(std::path::Path::new(
+            "/downloads/video.temp.mp4"
+        )));
+        assert!(is_temp_file(std::path::Path::new(
+            "/downloads/video.f251.webm"
+        )));
+        assert!(is_temp_file(std::path::Path::new(
+            "/downloads/video.f399.mp4"
+        )));
+        assert!(is_temp_file(std::path::Path::new(
+            "/downloads/video.info.json"
+        )));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mkv")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.webm")));
@@ -281,14 +353,13 @@ mod tests {
         let test_file = src_dir.path().join("video.mp4");
         std::fs::write(&test_file, b"fake video").unwrap();
 
-        let result = handle_new_file(
-            &test_file,
-            &dst_dir.path().to_path_buf(),
-            &pool,
-        ).await;
+        let result = handle_new_file(&test_file, &dst_dir.path().to_path_buf(), &pool).await;
 
         assert!(result.is_some());
         assert!(!test_file.exists(), "source file should be moved");
-        assert!(dst_dir.path().join("video.mp4").exists(), "dest file should exist");
+        assert!(
+            dst_dir.path().join("video.mp4").exists(),
+            "dest file should exist"
+        );
     }
 }
