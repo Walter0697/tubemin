@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/Walter0697/tubemin/compare/v0.7.0...v0.8.0) (2026-07-04)
+
+
+### Features
+
+* refresh url validation and download pipeline ([#16](https://github.com/Walter0697/tubemin/issues/16)) ([27336f1](https://github.com/Walter0697/tubemin/commit/27336f1a321473ec9db65aa6b56669b8230660d2))
+
 ## [0.7.0](https://github.com/Walter0697/tubemin/compare/v0.6.0...v0.7.0) (2026-07-04)
 
 
