@@ -1,3 +1,5 @@
+use crate::state::AppState;
+use crate::{api_keys, db, metube};
 use axum::{
     extract::{Json, State},
     http::{HeaderMap, StatusCode},
@@ -7,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
-use crate::state::AppState;
-use crate::{api_keys, db, metube};
 
 #[derive(Deserialize)]
 pub struct SubtitleTrack {
@@ -31,6 +31,30 @@ pub struct SubmitResponse {
     pub status: String,
 }
 
+fn normalize_submitter_tag(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut last_dash = false;
+    for ch in value.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            last_dash = false;
+            ch.to_ascii_lowercase()
+        } else {
+            if last_dash {
+                continue;
+            }
+            last_dash = true;
+            '-'
+        };
+        out.push(mapped);
+    }
+    let out = out.trim_matches('-');
+    if out.is_empty() {
+        "unknown".into()
+    } else {
+        out.to_string()
+    }
+}
+
 pub async fn submit(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -38,61 +62,115 @@ pub async fn submit(
 ) -> impl IntoResponse {
     let key = match headers.get("X-API-Key").and_then(|v| v.to_str().ok()) {
         Some(k) => k.to_string(),
-        None => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "missing API key"}))).into_response(),
-    };
-
-    let key_id = match api_keys::verify_key(&state.pool, &key).await {
-        Ok(Some(id)) => id,
-        Ok(None) => return (StatusCode::UNAUTHORIZED, Json(json!({"error": "invalid API key"}))).into_response(),
-        Err(e) => {
-            error!(error = %e, "db error verifying API key");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
+        None => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "missing API key"})),
+            )
+                .into_response()
         }
     };
 
-    let _ = api_keys::update_last_used(&state.pool, &key_id).await;
+    let verified_key = match api_keys::verify_key(&state.pool, &key).await {
+        Ok(Some(key)) => key,
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(json!({"error": "invalid API key"})),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            error!(error = %e, "db error verifying API key");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response();
+        }
+    };
+
+    let _ = api_keys::update_last_used(&state.pool, &verified_key.id).await;
 
     if !crate::url_validator::is_supported_url(&body.url)
         && !crate::url_validator::is_direct_media_url(&body.url)
     {
-        return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"error": "URL not supported — must be from a site yt-dlp can download"}))).into_response();
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"error": "URL not supported — must be from a site yt-dlp can download"})),
+        )
+            .into_response();
     }
 
     // Write the DB row before submitting to MeTube so the watcher always finds
     // a matching row, even when a fast download completes before this handler returns.
     let is_direct = crate::url_validator::is_direct_media_url(&body.url);
-    let reused = db::reset_submission_to_pending(&state.pool, &body.url).await.unwrap_or(false);
+    let submitter_tag = verified_key
+        .owner_display
+        .as_deref()
+        .map(normalize_submitter_tag);
+    let reused = db::reset_submission_to_pending(
+        &state.pool,
+        &body.url,
+        Some(&verified_key.id),
+        verified_key.owner_sub.as_deref(),
+        verified_key.owner_display.as_deref(),
+        submitter_tag.as_deref(),
+    )
+    .await
+    .unwrap_or(false);
 
     // Track the submission ID: use the just-generated one on new submissions to
     // avoid a second DB round-trip; look it up only when reusing an existing row.
     let submission_id: Option<String> = if !reused {
         let id = Uuid::new_v4().to_string();
-        if let Err(e) = db::create_submission(&state.pool, &id, &body.url, body.source_url.as_deref(), is_direct, body.title.as_deref()).await {
+        if let Err(e) = db::create_submission(
+            &state.pool,
+            &id,
+            &body.url,
+            body.source_url.as_deref(),
+            is_direct,
+            body.title.as_deref(),
+            Some(&verified_key.id),
+            verified_key.owner_sub.as_deref(),
+            verified_key.owner_display.as_deref(),
+            submitter_tag.as_deref(),
+        )
+        .await
+        {
             error!(error = %e, "db error creating submission record");
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "db error"}))).into_response();
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "db error"})),
+            )
+                .into_response();
         }
         Some(id)
     } else {
-        crate::db::get_submission_by_url(&state.pool, &body.url).await
-            .ok().flatten().map(|s| s.id)
+        crate::db::get_submission_by_url(&state.pool, &body.url)
+            .await
+            .ok()
+            .flatten()
+            .map(|s| s.id)
     };
 
     // For direct media URLs (m3u8/mp4) use our own downloader so we can pass
     // the Referer header that many CDNs require.
     if is_direct {
-        let url            = body.url.clone();
-        let referer        = body.referer.clone();
-        let title          = body.title.clone();
-        let cookies        = body.cookies.clone();
-        let subtitle_tracks: Vec<(String, String)> = body.subtitle_tracks
+        let url = body.url.clone();
+        let referer = body.referer.clone();
+        let title = body.title.clone();
+        let cookies = body.cookies.clone();
+        let subtitle_tracks: Vec<(String, String)> = body
+            .subtitle_tracks
             .unwrap_or_default()
             .into_iter()
             .map(|t| (t.lang, t.src))
             .collect();
-        let pool           = state.pool.clone();
-        let dl_dir         = state.config.downloads_dir.to_string_lossy().to_string();
-        let prog_map       = state.progress.clone();
-        let prog_key       = submission_id;
+        let pool = state.pool.clone();
+        let dl_dir = state.config.downloads_dir.to_string_lossy().to_string();
+        let prog_map = state.progress.clone();
+        let prog_key = submission_id;
 
         tokio::spawn(async move {
             let _ = db::mark_downloading(&pool, &url).await;
@@ -108,7 +186,9 @@ pub async fn submit(
                 prog_key,
                 Some(prog_map),
                 subtitle_tracks,
-            ).await {
+            )
+            .await
+            {
                 Ok(filename) => {
                     let _ = db::mark_imported_by_url(&pool, &url, &filename).await;
                 }
@@ -118,28 +198,44 @@ pub async fn submit(
                 }
             }
         });
-        return (StatusCode::OK, Json(SubmitResponse { status: "queued".into() })).into_response();
+        return (
+            StatusCode::OK,
+            Json(SubmitResponse {
+                status: "queued".into(),
+            }),
+        )
+            .into_response();
     }
 
     if let Err(e) = metube::submit(&state.config.metube_url, &body.url).await {
         error!(error = %e, "failed to submit URL to metube");
         let _ = db::mark_pending_as_error_by_url(&state.pool, &body.url).await;
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(json!({"error": "metube unavailable"}))).into_response();
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": "metube unavailable"})),
+        )
+            .into_response();
     }
 
-    (StatusCode::OK, Json(SubmitResponse { status: "queued".into() })).into_response()
+    (
+        StatusCode::OK,
+        Json(SubmitResponse {
+            status: "queued".into(),
+        }),
+    )
+        .into_response()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use axum::{Router, routing::post};
+    use crate::{api_keys, config::Config, db, state::AppState};
+    use axum::{routing::post, Router};
     use axum_test::TestServer;
-    use std::sync::Arc;
-    use crate::{config::Config, db, api_keys, state::AppState};
     use serde_json::json;
-    use wiremock::{MockServer, Mock, ResponseTemplate};
+    use std::sync::Arc;
     use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     async fn make_app() -> (TestServer, String, MockServer) {
         let pool = Arc::new(db::init("sqlite::memory:").await.unwrap());
@@ -176,8 +272,21 @@ mod tests {
             peertube_oidc_client_secret: None,
         });
 
-        let state = AppState { pool: pool.clone(), config, progress: crate::progress::new_progress_map() };
-        let api_key = api_keys::generate(&pool, Some("test")).await.unwrap();
+        let state = AppState {
+            pool: pool.clone(),
+            config,
+            progress: crate::progress::new_progress_map(),
+        };
+        let api_key = api_keys::generate(
+            &pool,
+            Some("test"),
+            api_keys::ApiKeyOwner {
+                sub: Some("test-user"),
+                display: "test-user",
+            },
+        )
+        .await
+        .unwrap();
 
         let app = Router::new()
             .route("/api/submit", post(submit))

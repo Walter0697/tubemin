@@ -4,6 +4,13 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tokio_util::io::ReaderStream;
 
+fn submitter_tags(submitter_tag: Option<&str>) -> Vec<String> {
+    submitter_tag
+        .filter(|tag| !tag.is_empty())
+        .map(|tag| vec![format!("submitter:{tag}")])
+        .unwrap_or_default()
+}
+
 #[derive(Deserialize)]
 struct OAuthClient {
     client_id: String,
@@ -63,7 +70,8 @@ pub async fn ensure_account(
     let resp = client
         .get(format!("{}/api/v1/oauth-clients/local", url))
         .header("Host", &host)
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let oauth: OAuthClient = serde_json::from_str(&body)
         .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
@@ -72,24 +80,29 @@ pub async fn ensure_account(
         .post(format!("{}/api/v1/users/token", url))
         .header("Host", &host)
         .form(&[
-            ("client_id",     oauth.client_id.as_str()),
+            ("client_id", oauth.client_id.as_str()),
             ("client_secret", oauth.client_secret.as_str()),
-            ("grant_type",    "password"),
+            ("grant_type", "password"),
             ("response_type", "code"),
-            ("username",      admin_username),
-            ("password",      admin_password),
+            ("username", admin_username),
+            ("password", admin_password),
         ])
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let token: TokenResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow!("admin token parse error ({e}): {body}"))?;
 
     // Check if bot account already exists
     let resp = client
-        .get(format!("{}/api/v1/users?search={}&count=1", url, bot_username))
+        .get(format!(
+            "{}/api/v1/users?search={}&count=1",
+            url, bot_username
+        ))
         .header("Host", &host)
         .bearer_auth(&token.access_token)
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let results: UserSearchResult = serde_json::from_str(&body)
         .map_err(|e| anyhow!("user search parse error ({e}): {body}"))?;
@@ -115,12 +128,18 @@ pub async fn ensure_account(
         .header("Content-Type", "application/json")
         .bearer_auth(&token.access_token)
         .body(body)
-        .send().await?;
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("Failed to create bot account '{}' ({}): {}", bot_username, status, body));
+        return Err(anyhow!(
+            "Failed to create bot account '{}' ({}): {}",
+            bot_username,
+            status,
+            body
+        ));
     }
 
     tracing::info!("Created PeerTube bot account '{}'", bot_username);
@@ -156,7 +175,8 @@ pub async fn ensure_oidc_configured(
     let resp = client
         .get(format!("{}/api/v1/oauth-clients/local", url))
         .header("Host", &host)
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let oauth: OAuthClient = serde_json::from_str(&body)
         .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
@@ -165,14 +185,15 @@ pub async fn ensure_oidc_configured(
         .post(format!("{}/api/v1/users/token", url))
         .header("Host", &host)
         .form(&[
-            ("client_id",     oauth.client_id.as_str()),
+            ("client_id", oauth.client_id.as_str()),
             ("client_secret", oauth.client_secret.as_str()),
-            ("grant_type",    "password"),
+            ("grant_type", "password"),
             ("response_type", "code"),
-            ("username",      admin_username),
-            ("password",      admin_password),
+            ("username", admin_username),
+            ("password", admin_password),
         ])
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let token: TokenResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow!("admin token parse error ({e}): {body}"))?;
@@ -183,11 +204,16 @@ pub async fn ensure_oidc_configured(
         .header("Host", &host)
         .bearer_auth(&token.access_token)
         .json(&serde_json::json!({ "npmName": OIDC_PLUGIN }))
-        .send().await?;
+        .send()
+        .await?;
     let status = resp.status();
     if !status.is_success() && status.as_u16() != 409 {
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("PeerTube plugin install failed ({}): {}", status, body));
+        return Err(anyhow!(
+            "PeerTube plugin install failed ({}): {}",
+            status,
+            body
+        ));
     }
 
     // Configure the OIDC settings
@@ -204,11 +230,16 @@ pub async fn ensure_oidc_configured(
                 "auth-display-name": "Login with Authentik",
             }
         }))
-        .send().await?;
+        .send()
+        .await?;
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("PeerTube OIDC plugin settings update failed ({}): {}", status, body));
+        return Err(anyhow!(
+            "PeerTube OIDC plugin settings update failed ({}): {}",
+            status,
+            body
+        ));
     }
 
     // Require login for anonymous visitors
@@ -216,7 +247,8 @@ pub async fn ensure_oidc_configured(
         .get(format!("{}/api/v1/config/custom", url))
         .header("Host", &host)
         .bearer_auth(&token.access_token)
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let mut current: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| anyhow!("config/custom parse error ({e}): {body}"))?;
@@ -227,11 +259,16 @@ pub async fn ensure_oidc_configured(
         .header("Host", &host)
         .bearer_auth(&token.access_token)
         .json(&current)
-        .send().await?;
+        .send()
+        .await?;
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("PeerTube config update failed ({}): {}", status, body));
+        return Err(anyhow!(
+            "PeerTube config update failed ({}): {}",
+            status,
+            body
+        ));
     }
 
     tracing::info!("PeerTube OIDC plugin installed and configured; requiresAuth=true");
@@ -250,17 +287,18 @@ async fn set_bot_avatar(
         .post(format!("{}/api/v1/users/token", url))
         .header("Host", host)
         .form(&[
-            ("client_id",     oauth.client_id.as_str()),
+            ("client_id", oauth.client_id.as_str()),
             ("client_secret", oauth.client_secret.as_str()),
-            ("grant_type",    "password"),
+            ("grant_type", "password"),
             ("response_type", "code"),
-            ("username",      bot_username),
-            ("password",      bot_password),
+            ("username", bot_username),
+            ("password", bot_password),
         ])
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
-    let token: TokenResponse = serde_json::from_str(&body)
-        .map_err(|e| anyhow!("bot token parse error ({e}): {body}"))?;
+    let token: TokenResponse =
+        serde_json::from_str(&body).map_err(|e| anyhow!("bot token parse error ({e}): {body}"))?;
 
     let avatar_part = reqwest::multipart::Part::bytes(BOT_AVATAR)
         .file_name("icon128.png")
@@ -272,7 +310,8 @@ async fn set_bot_avatar(
         .header("Host", host)
         .bearer_auth(&token.access_token)
         .multipart(form)
-        .send().await?;
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -315,12 +354,20 @@ pub async fn upload_captions(
     video_uuid: &str,
     captions: &[(String, Vec<u8>)],
 ) -> Result<()> {
-    if captions.is_empty() { return Ok(()); }
+    if captions.is_empty() {
+        return Ok(());
+    }
 
-    let host = host_override.map(|s| s.to_string()).unwrap_or_else(|| derive_host(url));
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
     let client = Client::new();
 
-    let resp = client.get(format!("{}/api/v1/oauth-clients/local", url)).header("Host", &host).send().await?;
+    let resp = client
+        .get(format!("{}/api/v1/oauth-clients/local", url))
+        .header("Host", &host)
+        .send()
+        .await?;
     let body = resp.text().await?;
     let oauth: OAuthClient = serde_json::from_str(&body)
         .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
@@ -329,14 +376,18 @@ pub async fn upload_captions(
         .post(format!("{}/api/v1/users/token", url))
         .header("Host", &host)
         .form(&[
-            ("client_id", oauth.client_id.as_str()), ("client_secret", oauth.client_secret.as_str()),
-            ("grant_type", "password"), ("response_type", "code"),
-            ("username", username), ("password", password),
+            ("client_id", oauth.client_id.as_str()),
+            ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type", "password"),
+            ("response_type", "code"),
+            ("username", username),
+            ("password", password),
         ])
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
-    let token: TokenResponse = serde_json::from_str(&body)
-        .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
+    let token: TokenResponse =
+        serde_json::from_str(&body).map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
 
     for (lang, vtt_bytes) in captions {
         let part = reqwest::multipart::Part::bytes(vtt_bytes.clone())
@@ -344,45 +395,71 @@ pub async fn upload_captions(
             .mime_str("text/vtt")?;
         let form = reqwest::multipart::Form::new().part("captionfile", part);
         let resp = client
-            .put(format!("{}/api/v1/videos/{}/captions/{}", url, video_uuid, lang))
+            .put(format!(
+                "{}/api/v1/videos/{}/captions/{}",
+                url, video_uuid, lang
+            ))
             .header("Host", &host)
             .bearer_auth(&token.access_token)
             .multipart(form)
-            .send().await?;
+            .send()
+            .await?;
         if resp.status().is_success() {
             tracing::info!("Uploaded {} caption for video {}", lang, video_uuid);
         } else {
             let status = resp.status();
             let body = resp.text().await.unwrap_or_default();
-            tracing::warn!("Caption upload failed for lang {} ({}): {}", lang, status, body);
+            tracing::warn!(
+                "Caption upload failed for lang {} ({}): {}",
+                lang,
+                status,
+                body
+            );
         }
     }
     Ok(())
 }
 
-pub async fn delete_video(url: &str, host_override: Option<&str>, username: &str, password: &str, video_uuid: &str) -> Result<()> {
-    let host = host_override.map(|s| s.to_string()).unwrap_or_else(|| derive_host(url));
+pub async fn delete_video(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    video_uuid: &str,
+) -> Result<()> {
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
     let client = Client::new();
 
-    let resp = client.get(format!("{}/api/v1/oauth-clients/local", url)).header("Host", &host).send().await?;
+    let resp = client
+        .get(format!("{}/api/v1/oauth-clients/local", url))
+        .header("Host", &host)
+        .send()
+        .await?;
     let oauth: OAuthClient = serde_json::from_str(&resp.text().await?)?;
 
     let resp = client
         .post(format!("{}/api/v1/users/token", url))
         .header("Host", &host)
         .form(&[
-            ("client_id", oauth.client_id.as_str()), ("client_secret", oauth.client_secret.as_str()),
-            ("grant_type", "password"), ("response_type", "code"),
-            ("username", username), ("password", password),
+            ("client_id", oauth.client_id.as_str()),
+            ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type", "password"),
+            ("response_type", "code"),
+            ("username", username),
+            ("password", password),
         ])
-        .send().await?;
+        .send()
+        .await?;
     let token: TokenResponse = serde_json::from_str(&resp.text().await?)?;
 
     let resp = client
         .delete(format!("{}/api/v1/videos/{}", url, video_uuid))
         .header("Host", &host)
         .bearer_auth(&token.access_token)
-        .send().await?;
+        .send()
+        .await?;
 
     if !resp.status().is_success() && resp.status().as_u16() != 404 {
         let status = resp.status();
@@ -416,7 +493,18 @@ fn derive_host(url: &str) -> String {
 }
 
 /// Upload a video to PeerTube. Returns the `/lazy-static/previews/{uuid}.jpg` path on success.
-pub async fn upload(url: &str, host_override: Option<&str>, username: &str, password: &str, privacy: u8, file_path: &Path, meta: &crate::video_meta::VideoMeta, thumbnail: Option<(Vec<u8>, &str)>) -> Result<(String, String)> {
+pub async fn upload(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    privacy: u8,
+    file_path: &Path,
+    meta: &crate::video_meta::VideoMeta,
+    thumbnail: Option<(Vec<u8>, &str)>,
+    _submitter_display: Option<&str>,
+    submitter_tag: Option<&str>,
+) -> Result<(String, String)> {
     // PeerTube validates Host against PEERTUBE_WEBSERVER_HOSTNAME (its public hostname).
     // When Tubemin connects via Docker-internal URL (peertube:9000) we must send the
     // public hostname (localhost:9000) in the Host header. PEERTUBE_HOST provides this.
@@ -430,7 +518,8 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
     let resp = client
         .get(format!("{}/api/v1/oauth-clients/local", url))
         .header("Host", &host)
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let oauth: OAuthClient = serde_json::from_str(&body)
         .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
@@ -440,34 +529,42 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         .post(format!("{}/api/v1/users/token", url))
         .header("Host", &host)
         .form(&[
-            ("client_id",     oauth.client_id.as_str()),
+            ("client_id", oauth.client_id.as_str()),
             ("client_secret", oauth.client_secret.as_str()),
-            ("grant_type",    "password"),
+            ("grant_type", "password"),
             ("response_type", "code"),
-            ("username",      username),
-            ("password",      password),
+            ("username", username),
+            ("password", password),
         ])
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
-    let token: TokenResponse = serde_json::from_str(&body)
-        .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
+    let token: TokenResponse =
+        serde_json::from_str(&body).map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
 
     // 3. Find the user's default channel
     let resp = client
-        .get(format!("{}/api/v1/accounts/{}/video-channels", url, username))
+        .get(format!(
+            "{}/api/v1/accounts/{}/video-channels",
+            url, username
+        ))
         .header("Host", &host)
         .bearer_auth(&token.access_token)
-        .send().await?;
+        .send()
+        .await?;
     let body = resp.text().await?;
     let channels: ChannelList = serde_json::from_str(&body)
         .map_err(|e| anyhow!("video-channels parse error ({e}): {body}"))?;
 
-    let channel_id = channels.data.first()
+    let channel_id = channels
+        .data
+        .first()
         .ok_or_else(|| anyhow!("No video channel found for PeerTube user '{}'", username))?
         .id;
 
     // 4. Stream-upload the video file
-    let filename = file_path.file_name()
+    let filename = file_path
+        .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("video")
         .to_string();
@@ -499,8 +596,15 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
     if !description.is_empty() {
         form = form.text("description", description);
     }
-    if let Some(iso) = meta.upload_date.as_deref().and_then(crate::video_meta::upload_date_to_iso) {
+    if let Some(iso) = meta
+        .upload_date
+        .as_deref()
+        .and_then(crate::video_meta::upload_date_to_iso)
+    {
         form = form.text("originallyPublishedAt", iso);
+    }
+    for tag in submitter_tags(submitter_tag) {
+        form = form.text("tags[]", tag);
     }
 
     let mut form = form.part("videofile", video_part);
@@ -512,7 +616,9 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         let thumb2 = reqwest::multipart::Part::bytes(thumb_bytes)
             .file_name("preview.jpg")
             .mime_str(thumb_mime)?;
-        form = form.part("thumbnailfile", thumb1).part("previewfile", thumb2);
+        form = form
+            .part("thumbnailfile", thumb1)
+            .part("previewfile", thumb2);
     }
 
     let resp = client
@@ -520,7 +626,8 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         .header("Host", &host)
         .bearer_auth(&token.access_token)
         .multipart(form)
-        .send().await?;
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -538,12 +645,16 @@ pub async fn upload(url: &str, host_override: Option<&str>, username: &str, pass
         .get(format!("{}/api/v1/videos/{}", url, upload.video.uuid))
         .header("Host", &host)
         .bearer_auth(&token.access_token)
-        .send().await?;
+        .send()
+        .await?;
     if details_resp.status().is_success() {
         let details_body = details_resp.text().await?;
         if let Ok(details) = serde_json::from_str::<VideoDetails>(&details_body) {
             return Ok((details.preview_path, upload.video.uuid));
         }
     }
-    Ok((format!("/lazy-static/previews/{}.jpg", upload.video.uuid), upload.video.uuid))
+    Ok((
+        format!("/lazy-static/previews/{}.jpg", upload.video.uuid),
+        upload.video.uuid,
+    ))
 }

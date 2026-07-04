@@ -7,8 +7,8 @@ use axum::{
 use openidconnect::{
     core::{CoreAuthenticationFlow, CoreClient, CoreProviderMetadata},
     reqwest::async_http_client,
-    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
+    AuthorizationCode, ClientId, ClientSecret, CsrfToken, IssuerUrl, Nonce, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, Scope, TokenResponse,
 };
 use serde::{Deserialize, Serialize};
 use tower_sessions::Session;
@@ -22,6 +22,8 @@ const SESSION_NONCE_KEY: &str = "nonce";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcUser {
+    #[serde(default)]
+    pub sub: Option<String>,
     pub email: String,
     #[serde(default)]
     pub username: Option<String>,
@@ -32,6 +34,50 @@ impl OidcUser {
     pub fn display_name(&self) -> &str {
         self.username.as_deref().unwrap_or(&self.email)
     }
+
+    pub fn stable_subject(&self) -> Option<&str> {
+        self.sub.as_deref()
+    }
+
+    pub fn owner_display(&self) -> &str {
+        self.display_name()
+    }
+
+    pub fn submitter_tag(&self) -> String {
+        let raw = self
+            .username
+            .as_deref()
+            .or_else(|| {
+                self.email
+                    .split_once('@')
+                    .map(|(local, _)| local)
+                    .filter(|local| !local.is_empty())
+            })
+            .or_else(|| self.sub.as_deref())
+            .unwrap_or("unknown");
+
+        let mut out = String::with_capacity(raw.len());
+        let mut last_dash = false;
+        for ch in raw.chars() {
+            let mapped = if ch.is_ascii_alphanumeric() {
+                last_dash = false;
+                ch.to_ascii_lowercase()
+            } else {
+                if last_dash {
+                    continue;
+                }
+                last_dash = true;
+                '-'
+            };
+            out.push(mapped);
+        }
+        let out = out.trim_matches('-');
+        if out.is_empty() {
+            "unknown".into()
+        } else {
+            out.to_string()
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -41,13 +87,21 @@ pub struct CallbackParams {
 }
 
 pub async fn build_oidc_client(config: &crate::config::Config) -> anyhow::Result<CoreClient> {
-    let issuer = config.oidc_issuer_url.as_deref()
+    let issuer = config
+        .oidc_issuer_url
+        .as_deref()
         .ok_or_else(|| anyhow::anyhow!("OIDC_ISSUER_URL not configured"))?;
-    let client_id = config.oidc_client_id.as_deref()
+    let client_id = config
+        .oidc_client_id
+        .as_deref()
         .ok_or_else(|| anyhow::anyhow!("OIDC_CLIENT_ID not configured"))?;
-    let client_secret = config.oidc_client_secret.as_deref()
+    let client_secret = config
+        .oidc_client_secret
+        .as_deref()
         .ok_or_else(|| anyhow::anyhow!("OIDC_CLIENT_SECRET not configured"))?;
-    let redirect_url = config.oidc_redirect_url.as_deref()
+    let redirect_url = config
+        .oidc_redirect_url
+        .as_deref()
         .ok_or_else(|| anyhow::anyhow!("OIDC_REDIRECT_URL not configured"))?;
 
     let provider_metadata = CoreProviderMetadata::discover_async(
@@ -66,8 +120,7 @@ pub async fn build_oidc_client(config: &crate::config::Config) -> anyhow::Result
 
 pub async fn login_page(State(state): State<AppState>) -> impl IntoResponse {
     let label = &state.config.oidc_login_label;
-    let html = include_str!("../templates/login_oidc.html")
-        .replace("{{OIDC_LOGIN_LABEL}}", label);
+    let html = include_str!("../templates/login_oidc.html").replace("{{OIDC_LOGIN_LABEL}}", label);
     Html(html)
 }
 
@@ -158,12 +211,18 @@ pub async fn callback(
                 .map(|e| e.as_str().to_string())
                 .unwrap_or_else(|| "unknown".into());
 
-            let username = claims
-                .preferred_username()
-                .map(|u| u.as_str().to_string());
+            let username = claims.preferred_username().map(|u| u.as_str().to_string());
+            let sub = Some(claims.subject().as_str().to_string());
 
             session
-                .insert(SESSION_USER_KEY, OidcUser { email, username })
+                .insert(
+                    SESSION_USER_KEY,
+                    OidcUser {
+                        sub,
+                        email,
+                        username,
+                    },
+                )
                 .await
                 .ok();
             Redirect::to("/dashboard").into_response()
@@ -201,20 +260,39 @@ mod tests {
 
     #[test]
     fn display_name_prefers_username() {
-        let u = OidcUser { email: "a@b.c".into(), username: Some("walter".into()) };
+        let u = OidcUser {
+            sub: None,
+            email: "a@b.c".into(),
+            username: Some("walter".into()),
+        };
         assert_eq!(u.display_name(), "walter");
     }
 
     #[test]
     fn display_name_falls_back_to_email() {
-        let u = OidcUser { email: "a@b.c".into(), username: None };
+        let u = OidcUser {
+            sub: None,
+            email: "a@b.c".into(),
+            username: None,
+        };
         assert_eq!(u.display_name(), "a@b.c");
     }
 
     #[test]
     fn old_session_json_deserializes_with_default_username() {
         let u: OidcUser = serde_json::from_str(r#"{"email":"a@b.c"}"#).unwrap();
+        assert!(u.sub.is_none());
         assert!(u.username.is_none());
         assert_eq!(u.display_name(), "a@b.c");
+    }
+
+    #[test]
+    fn submitter_tag_normalizes_username() {
+        let u = OidcUser {
+            sub: None,
+            email: "a@b.c".into(),
+            username: Some("Walter Smith".into()),
+        };
+        assert_eq!(u.submitter_tag(), "walter-smith");
     }
 }
