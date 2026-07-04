@@ -23,6 +23,15 @@ const SESSION_NONCE_KEY: &str = "nonce";
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OidcUser {
     pub email: String,
+    #[serde(default)]
+    pub username: Option<String>,
+}
+
+impl OidcUser {
+    /// Name shown in the UI: OIDC preferred_username when present, else email.
+    pub fn display_name(&self) -> &str {
+        self.username.as_deref().unwrap_or(&self.email)
+    }
 }
 
 #[derive(Deserialize)]
@@ -77,6 +86,7 @@ pub async fn login(State(state): State<AppState>, session: Session) -> impl Into
         )
         .add_scope(Scope::new("openid".into()))
         .add_scope(Scope::new("email".into()))
+        .add_scope(Scope::new("profile".into()))
         .set_pkce_challenge(pkce_challenge)
         .url();
 
@@ -148,8 +158,12 @@ pub async fn callback(
                 .map(|e| e.as_str().to_string())
                 .unwrap_or_else(|| "unknown".into());
 
+            let username = claims
+                .preferred_username()
+                .map(|u| u.as_str().to_string());
+
             session
-                .insert(SESSION_USER_KEY, OidcUser { email })
+                .insert(SESSION_USER_KEY, OidcUser { email, username })
                 .await
                 .ok();
             Redirect::to("/dashboard").into_response()
@@ -178,5 +192,29 @@ impl<S: Send + Sync> FromRequestParts<S> for RequireAuth {
             Ok(Some(user)) => Ok(RequireAuth(user)),
             _ => Err(Redirect::to("/auth/login").into_response()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_name_prefers_username() {
+        let u = OidcUser { email: "a@b.c".into(), username: Some("walter".into()) };
+        assert_eq!(u.display_name(), "walter");
+    }
+
+    #[test]
+    fn display_name_falls_back_to_email() {
+        let u = OidcUser { email: "a@b.c".into(), username: None };
+        assert_eq!(u.display_name(), "a@b.c");
+    }
+
+    #[test]
+    fn old_session_json_deserializes_with_default_username() {
+        let u: OidcUser = serde_json::from_str(r#"{"email":"a@b.c"}"#).unwrap();
+        assert!(u.username.is_none());
+        assert_eq!(u.display_name(), "a@b.c");
     }
 }
