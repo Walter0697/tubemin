@@ -23,7 +23,7 @@ fn generate_csrf_token() -> String {
 }
 
 pub async fn settings(
-    RequireAuth(_user): RequireAuth,
+    RequireAuth(user): RequireAuth,
     State(state): State<AppState>,
     session: tower_sessions::Session,
     Query(query): Query<NewKeyQuery>,
@@ -42,10 +42,13 @@ pub async fn settings(
 
     let mut env = Environment::new();
     env.set_auto_escape_callback(|_| minijinja::AutoEscape::Html);
+    env.add_template("nav", include_str!("../../templates/partials/nav.html")).unwrap();
     env.add_template("settings", include_str!("../../templates/settings.html")).unwrap();
     let tmpl = env.get_template("settings").unwrap();
 
     let ctx = minijinja::context! {
+        username => user.display_name(),
+        active_page => "settings",
         new_key => query.new_key,
         csrf_token => csrf_token,
         api_keys => keys.iter().map(|k| minijinja::context! {

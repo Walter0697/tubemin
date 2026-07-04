@@ -28,7 +28,10 @@ pub async fn login_submit(
     let expected = state.config.admin_password.as_deref().unwrap_or("");
     if form.password == expected {
         session
-            .insert(SESSION_USER_KEY, OidcUser { email: "admin".into() })
+            .insert(
+                SESSION_USER_KEY,
+                OidcUser { email: "admin".into(), username: Some("admin".into()) },
+            )
             .await
             .ok();
         Redirect::to("/dashboard").into_response()

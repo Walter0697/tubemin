@@ -8,13 +8,7 @@
   <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body>
-  <nav>
-    <span class="nav-logo"><img src="/static/favicon.png" class="nav-icon" alt="">TUBEMIN</span>
-    <a href="/dashboard" class="nav-link">Dashboard</a>
-    <a href="/settings" class="nav-link active">Settings</a>
-    <span class="nav-spacer"></span>
-    <a href="/auth/logout" class="nav-link nav-logout">Logout</a>
-  </nav>
+  {% include "nav" %}
   <div class="page">
     <h1 class="page-title">Settings</h1>
 
@@ -33,37 +27,39 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <button type="submit">Generate New Key</button>
     </form>
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>ID</th>
-          <th>Label</th>
-          <th>Created</th>
-          <th>Last Used</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for key in api_keys %}
-        <tr>
-          <td class="key-id">{{ key.id[:8] }}</td>
-          <td>{{ key.label | default("-") }}</td>
-          <td>{{ key.created_at }}</td>
-          <td>{{ key.last_used_at | default("never") }}</td>
-          <td>
-            <form method="POST" action="/settings/keys/{{ key.id }}/revoke" style="display: inline;">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button type="submit" class="btn-secondary">Revoke</button>
-            </form>
-          </td>
-        </tr>
-        {% else %}
-        <tr>
-          <td colspan="5" class="empty-cell">No API keys yet.</td>
-        </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Label</th>
+            <th>Created</th>
+            <th>Last Used</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for key in api_keys %}
+          <tr>
+            <td class="key-id">{{ key.id[:8] }}</td>
+            <td>{{ key.label | default("-") }}</td>
+            <td>{{ key.created_at }}</td>
+            <td>{{ key.last_used_at | default("never") }}</td>
+            <td>
+              <form method="POST" action="/settings/keys/{{ key.id }}/revoke" style="display: inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button type="submit" class="btn-secondary">Revoke</button>
+              </form>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="5" class="empty-cell">No API keys yet.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
   </div>
   <script src="/static/app.js"></script>
   {% if new_key %}

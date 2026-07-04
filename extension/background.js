@@ -119,7 +119,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 // ── Intercept handler ─────────────────────────────────────────────────────
 
 function shouldSkip(details) {
-  return details.tabId < 0 || details.initiator?.startsWith('chrome-extension://');
+  return details.tabId < 0 ||
+    details.initiator?.startsWith('chrome-extension://') ||
+    details.initiator?.startsWith('moz-extension://');
 }
 
 chrome.webRequest.onBeforeRequest.addListener(

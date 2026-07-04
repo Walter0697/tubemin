@@ -8,13 +8,14 @@ fn dashboard_env() -> &'static Environment<'static> {
     DASHBOARD_ENV.get_or_init(|| {
         let mut env = Environment::new();
         env.set_auto_escape_callback(|_| minijinja::AutoEscape::Html);
+        env.add_template("nav", include_str!("../../templates/partials/nav.html")).unwrap();
         env.add_template("dashboard", include_str!("../../templates/dashboard.html")).unwrap();
         env
     })
 }
 
 pub async fn dashboard(
-    RequireAuth(_user): RequireAuth,
+    RequireAuth(user): RequireAuth,
     State(state): State<AppState>,
     req: Request,
 ) -> Html<String> {
@@ -36,6 +37,8 @@ pub async fn dashboard(
 
     let ctx = minijinja::context! {
         peertube_base => peertube_base,
+        username => user.display_name(),
+        active_page => "dashboard",
         submissions => submissions.iter().map(|s| minijinja::context! {
             url => s.url,
             title => s.title,
@@ -46,4 +49,23 @@ pub async fn dashboard(
     };
 
     Html(tmpl.render(ctx).unwrap_or_else(|e| format!("Template error: {}", e)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_renders_nav_with_username_and_active_tab() {
+        let tmpl = dashboard_env().get_template("dashboard").unwrap();
+        let html = tmpl
+            .render(minijinja::context! {
+                peertube_base => "",
+                username => "admin",
+                active_page => "dashboard",
+            })
+            .unwrap();
+        assert!(html.contains(r#"<span class="nav-user">admin</span>"#));
+        assert!(html.contains(r#"class="nav-link active""#));
+    }
 }
