@@ -83,6 +83,13 @@ nav {
 .nav-spacer { flex: 1; }
 .nav-logout { color: var(--text-dim); font-size: 13px; }
 .nav-logout:hover { color: var(--text); }
+.nav-user {
+  font-size: 12px;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── Page layout ────────────────────────────────── */
 .page {
@@ -793,6 +800,7 @@ a.card.card-selected {
     padding: 10px 16px;
   }
   .nav-logo { margin-right: 0; }
+  .nav-user { max-width: 110px; }
   .login-card {
     width: calc(100% - 32px);
     max-width: 340px;
