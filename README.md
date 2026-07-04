@@ -89,11 +89,11 @@ Caddy obtains TLS certificates automatically. First startup takes ~2 minutes for
 
 ### 4. Generate an API key
 
-Open `https://tubemin.yourdomain.com/settings`, log in, and generate a key. You'll enter this in the Chrome extension settings.
+Open `https://tubemin.yourdomain.com/settings`, log in, and generate a key. You'll enter this in the extension settings.
 
 ## Browser extension
 
-The extension is not listed in any browser store. Use the Chrome package for Chromium browsers, or the Firefox package for Firefox-based browsers such as Zen.
+The extension is intentionally not listed in any browser store. Install it locally: use developer mode in Chromium browsers, or temporary debugging install in Firefox-based browsers such as Zen.
 
 ### Chrome / Chromium installation
 
@@ -119,9 +119,27 @@ The Tubemin icon will appear in your toolbar. Pin it for easy access.
 
 ### Firefox / Zen installation
 
-Download the release artifact named `tubemin-firefox-extension.xpi`, then install it in `about:addons` in Firefox or Zen.
+Firefox-based browsers do not support Chrome-style unpacked loading from `about:addons`. Use temporary extension loading instead.
 
-If you are loading from the repo instead of a release artifact, note that Firefox-based browsers do not support this extension as a Chrome-only unpacked folder unless the manifest is Firefox-compatible.
+**1. Clone the repo** (if you haven't already):
+
+```bash
+git clone https://github.com/youruser/tubemin.git
+```
+
+**2. Open the debugging page:**
+
+Navigate to `about:debugging#/runtime/this-firefox` in Firefox or Zen.
+
+**3. Load the extension temporarily:**
+
+Click **Load Temporary Add-on**, open the repo's `extension/` folder, and select `manifest.json`.
+
+You can also temporarily load the packaged `tubemin-firefox-extension.xpi` artifact from a release, but temporary loading from the repo is the simplest development workflow.
+
+**4. Reload after browser restart:**
+
+Temporary add-ons are removed when the browser fully restarts. Re-open `about:debugging` and load it again when needed.
 
 ### Configuration
 
@@ -135,7 +153,9 @@ Click **Save**, then **Test Connection** to verify.
 
 ### Keeping it updated
 
-The extension loads directly from the cloned folder, so a `git pull` is all you need — no reinstall required. If the `manifest.json` changes, go to `chrome://extensions` and click the **↺ reload** icon on the Tubemin card.
+For Chrome/Chromium, the extension loads directly from the cloned folder, so a `git pull` is all you need. If the `manifest.json` changes, go to `chrome://extensions` and click the **↺ reload** icon on the Tubemin card.
+
+For Firefox/Zen temporary installs, reload it from `about:debugging` after code changes, and re-add it after a full browser restart.
 
 ### Usage
 
