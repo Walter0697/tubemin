@@ -91,11 +91,11 @@ Caddy obtains TLS certificates automatically. First startup takes ~2 minutes for
 
 Open `https://tubemin.yourdomain.com/settings`, log in, and generate a key. You'll enter this in the Chrome extension settings.
 
-## Chrome extension
+## Browser extension
 
-The extension is not listed in any browser store — install it directly from this repo.
+The extension is not listed in any browser store. Use the Chrome package for Chromium browsers, or the Firefox package for Firefox-based browsers such as Zen.
 
-### Installation
+### Chrome / Chromium installation
 
 **1. Clone the repo** (if you haven't already):
 
@@ -117,9 +117,15 @@ Click **Load unpacked**, then select the `extension/` folder inside the cloned r
 
 The Tubemin icon will appear in your toolbar. Pin it for easy access.
 
+### Firefox / Zen installation
+
+Download the release artifact named `tubemin-firefox-extension.xpi`, then install it in `about:addons` in Firefox or Zen.
+
+If you are loading from the repo instead of a release artifact, note that Firefox-based browsers do not support this extension as a Chrome-only unpacked folder unless the manifest is Firefox-compatible.
+
 ### Configuration
 
-Click the extension icon → **⚙ Settings**, then enter:
+Click the extension icon -> **Settings**, then enter:
 
 - **Server URL**: `https://tubemin.yourdomain.com` (or `http://localhost:3000` for local)
 - **API Key**: the key generated in Tubemin's Settings page

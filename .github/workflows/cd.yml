@@ -17,13 +17,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Zip extension
-        run: zip -r tubemin-extension.zip extension -x "*.DS_Store"
+      - name: Package Chrome extension
+        run: zip -r tubemin-chrome-extension.zip extension -x "*.DS_Store"
+
+      - name: Package Firefox extension
+        working-directory: extension
+        run: zip -r ../tubemin-firefox-extension.xpi . -x "*.DS_Store"
 
       - name: Upload to GitHub release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} tubemin-extension.zip
+        run: gh release upload ${{ github.ref_name }} tubemin-chrome-extension.zip tubemin-firefox-extension.xpi
 
   build-and-push:
     needs: ci
