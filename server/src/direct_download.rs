@@ -1,5 +1,5 @@
-use std::path::Path;
 use reqwest::Client;
+use std::path::Path;
 use tokio::io::AsyncWriteExt;
 use tracing::info;
 
@@ -74,15 +74,19 @@ async fn download_hls(
     progress_key: Option<String>,
     progress_map: Option<crate::progress::ProgressMap>,
 ) -> Result<(), anyhow::Error> {
-    use tokio::io::{AsyncBufReadExt, BufReader};
     use std::process::Stdio;
     use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncBufReadExt, BufReader};
 
     let mut headers = String::from(
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n",
     );
-    if let Some(r) = referer { headers.push_str(&format!("Referer: {}\r\n", r)); }
-    if let Some(c) = cookies { headers.push_str(&format!("Cookie: {}\r\n", c)); }
+    if let Some(r) = referer {
+        headers.push_str(&format!("Referer: {}\r\n", r));
+    }
+    if let Some(c) = cookies {
+        headers.push_str(&format!("Cookie: {}\r\n", c));
+    }
 
     let part = dest.with_extension("tmp");
     info!("HLS download (ffmpeg): {} → {}", url, dest.display());
@@ -90,13 +94,20 @@ async fn download_hls(
     let mut child = tokio::process::Command::new("ffmpeg")
         .args([
             "-y",
-            "-headers", &headers,
-            "-i", url,
-            "-map", "0:V?",
-            "-map", "0:a?",
-            "-c", "copy",
-            "-f", "mp4",
-            "-progress", "pipe:1",
+            "-headers",
+            &headers,
+            "-i",
+            url,
+            "-map",
+            "0:V?",
+            "-map",
+            "0:a?",
+            "-c",
+            "copy",
+            "-f",
+            "mp4",
+            "-progress",
+            "pipe:1",
             part.to_str().unwrap_or(""),
         ])
         .stdout(Stdio::piped())
@@ -117,7 +128,9 @@ async fn download_hls(
                 if let Some(dur_str) = line.split("Duration:").nth(1) {
                     let part = dur_str.trim().split(',').next().unwrap_or("").trim();
                     if let Some(us) = parse_duration_us(part) {
-                        if let Ok(mut g) = total_us_stderr.lock() { *g = Some(us); }
+                        if let Ok(mut g) = total_us_stderr.lock() {
+                            *g = Some(us);
+                        }
                     }
                 }
             }
@@ -177,25 +190,33 @@ async fn download_explicit_subtitles(
     for (lang, src_url) in tracks {
         let out = dir.join(format!("{}.{}.vtt", stem, lang));
         // Skip if HLS extraction already wrote this language
-        if out.exists() { continue; }
+        if out.exists() {
+            continue;
+        }
 
         let mut req = client().get(src_url);
-        if let Some(r) = referer { req = req.header("Referer", r); }
-        if let Some(c) = cookies { req = req.header("Cookie", c); }
+        if let Some(r) = referer {
+            req = req.header("Referer", r);
+        }
+        if let Some(c) = cookies {
+            req = req.header("Cookie", c);
+        }
 
         match req.send().await {
-            Ok(resp) if resp.status().is_success() => {
-                match resp.bytes().await {
-                    Ok(bytes) => {
-                        match tokio::fs::write(&out, &bytes).await {
-                            Ok(_) => info!("Downloaded <track> subtitle {} → {}", lang, out.display()),
-                            Err(e) => tracing::warn!("Failed to write subtitle {}: {}", lang, e),
-                        }
-                    }
-                    Err(e) => tracing::warn!("Failed to read subtitle response for lang {}: {}", lang, e),
+            Ok(resp) if resp.status().is_success() => match resp.bytes().await {
+                Ok(bytes) => match tokio::fs::write(&out, &bytes).await {
+                    Ok(_) => info!("Downloaded <track> subtitle {} → {}", lang, out.display()),
+                    Err(e) => tracing::warn!("Failed to write subtitle {}: {}", lang, e),
+                },
+                Err(e) => {
+                    tracing::warn!("Failed to read subtitle response for lang {}: {}", lang, e)
                 }
-            }
-            Ok(resp) => tracing::warn!("Subtitle fetch returned {} for lang {}", resp.status(), lang),
+            },
+            Ok(resp) => tracing::warn!(
+                "Subtitle fetch returned {} for lang {}",
+                resp.status(),
+                lang
+            ),
             Err(e) => tracing::warn!("Subtitle fetch failed for lang {}: {}", lang, e),
         }
     }
@@ -206,18 +227,32 @@ async fn download_explicit_subtitles(
 // ffmpeg on each subtitle playlist to produce sidecar .vtt files next to dest.
 // Entirely best-effort — any error is logged as a warning.
 
-async fn extract_hls_subtitles(master_url: &str, referer: Option<&str>, cookies: Option<&str>, dest: &Path) {
+async fn extract_hls_subtitles(
+    master_url: &str,
+    referer: Option<&str>,
+    cookies: Option<&str>,
+    dest: &Path,
+) {
     let tracks = match fetch_subtitle_tracks(master_url, referer, cookies).await {
         Ok(t) => t,
-        Err(e) => { tracing::warn!("subtitle track discovery failed: {}", e); return; }
+        Err(e) => {
+            tracing::warn!("subtitle track discovery failed: {}", e);
+            return;
+        }
     };
-    if tracks.is_empty() { return; }
+    if tracks.is_empty() {
+        return;
+    }
 
     let mut headers = String::from(
-        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n"
+        "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36\r\n",
     );
-    if let Some(r) = referer { headers.push_str(&format!("Referer: {}\r\n", r)); }
-    if let Some(c) = cookies { headers.push_str(&format!("Cookie: {}\r\n", c)); }
+    if let Some(r) = referer {
+        headers.push_str(&format!("Referer: {}\r\n", r));
+    }
+    if let Some(c) = cookies {
+        headers.push_str(&format!("Cookie: {}\r\n", c));
+    }
 
     let stem = dest.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
     let dir = dest.parent().unwrap_or(Path::new("."));
@@ -225,32 +260,57 @@ async fn extract_hls_subtitles(master_url: &str, referer: Option<&str>, cookies:
     for (lang, sub_url) in tracks {
         let out = dir.join(format!("{}.{}.vtt", stem, lang));
         let status = tokio::process::Command::new("ffmpeg")
-            .args(["-y", "-headers", &headers, "-i", &sub_url, "-f", "webvtt", out.to_str().unwrap_or("")])
+            .args([
+                "-y",
+                "-headers",
+                &headers,
+                "-i",
+                &sub_url,
+                "-f",
+                "webvtt",
+                out.to_str().unwrap_or(""),
+            ])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
             .await;
         match status {
             Ok(s) if s.success() => info!("Extracted {} subtitle → {}", lang, out.display()),
-            Ok(s) => tracing::warn!("ffmpeg subtitle extract failed for lang {}: status {}", lang, s),
+            Ok(s) => tracing::warn!(
+                "ffmpeg subtitle extract failed for lang {}: status {}",
+                lang,
+                s
+            ),
             Err(e) => tracing::warn!("ffmpeg subtitle extract error for lang {}: {}", lang, e),
         }
     }
 }
 
 // Returns (language_code, absolute_subtitle_playlist_url) pairs from a master playlist.
-async fn fetch_subtitle_tracks(master_url: &str, referer: Option<&str>, cookies: Option<&str>) -> anyhow::Result<Vec<(String, String)>> {
+async fn fetch_subtitle_tracks(
+    master_url: &str,
+    referer: Option<&str>,
+    cookies: Option<&str>,
+) -> anyhow::Result<Vec<(String, String)>> {
     let mut req = client().get(master_url);
-    if let Some(r) = referer { req = req.header("Referer", r); }
-    if let Some(c) = cookies { req = req.header("Cookie", c); }
+    if let Some(r) = referer {
+        req = req.header("Referer", r);
+    }
+    if let Some(c) = cookies {
+        req = req.header("Cookie", c);
+    }
     let text = req.send().await?.text().await?;
 
     let mut tracks = vec![];
     for line in text.lines() {
         let line = line.trim();
         // #EXT-X-MEDIA:TYPE=SUBTITLES,...,LANGUAGE="en",...,URI="sub/en.m3u8"
-        if !line.starts_with("#EXT-X-MEDIA") { continue; }
-        if !line.contains("TYPE=SUBTITLES") { continue; }
+        if !line.starts_with("#EXT-X-MEDIA") {
+            continue;
+        }
+        if !line.contains("TYPE=SUBTITLES") {
+            continue;
+        }
 
         let lang = extract_attr(line, "LANGUAGE").unwrap_or_else(|| "und".to_string());
         let uri = match extract_attr(line, "URI") {
@@ -262,7 +322,10 @@ async fn fetch_subtitle_tracks(master_url: &str, referer: Option<&str>, cookies:
         let abs_url = if uri.starts_with("http://") || uri.starts_with("https://") {
             uri
         } else {
-            match reqwest::Url::parse(master_url).ok().and_then(|base| base.join(&uri).ok()) {
+            match reqwest::Url::parse(master_url)
+                .ok()
+                .and_then(|base| base.join(&uri).ok())
+            {
                 Some(u) => u.to_string(),
                 None => continue,
             }
@@ -294,8 +357,12 @@ async fn download_direct(
     dest: &Path,
 ) -> Result<(), anyhow::Error> {
     let mut builder = client().get(url);
-    if let Some(r) = referer { builder = builder.header("Referer", r); }
-    if let Some(c) = cookies { builder = builder.header("Cookie", c); }
+    if let Some(r) = referer {
+        builder = builder.header("Referer", r);
+    }
+    if let Some(c) = cookies {
+        builder = builder.header("Cookie", c);
+    }
 
     let mut resp = builder.send().await?;
     if !resp.status().is_success() {
@@ -330,11 +397,16 @@ async fn extract_thumbnail(src: &Path, dest: &Path) -> Result<(), anyhow::Error>
     let status = tokio::process::Command::new("ffmpeg")
         .args([
             "-y",
-            "-ss", "5",
-            "-i", src.to_str().unwrap_or(""),
-            "-vframes", "1",
-            "-q:v", "2",
-            "-update", "1",   // write a single file, not an image sequence
+            "-ss",
+            "5",
+            "-i",
+            src.to_str().unwrap_or(""),
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
+            "-update",
+            "1", // write a single file, not an image sequence
             thumb_path.to_str().unwrap_or(""),
         ])
         .status()
@@ -344,7 +416,9 @@ async fn extract_thumbnail(src: &Path, dest: &Path) -> Result<(), anyhow::Error>
         return Err(anyhow::anyhow!("ffmpeg exited with status {}", status));
     }
     if !thumb_path.exists() {
-        return Err(anyhow::anyhow!("ffmpeg exited successfully but wrote no thumbnail"));
+        return Err(anyhow::anyhow!(
+            "ffmpeg exited successfully but wrote no thumbnail"
+        ));
     }
     info!("Thumbnail extracted: {}", thumb_path.display());
     Ok(())
@@ -370,7 +444,9 @@ fn unique_dest(dir: &str, base: &str, ext: &str) -> std::path::PathBuf {
 
 fn parse_duration_us(s: &str) -> Option<u64> {
     let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() != 3 { return None; }
+    if parts.len() != 3 {
+        return None;
+    }
     let h: u64 = parts[0].trim().parse().ok()?;
     let m: u64 = parts[1].trim().parse().ok()?;
     let sec: f64 = parts[2].trim().parse().ok()?;
@@ -394,7 +470,10 @@ mod tests {
 
     #[test]
     fn sanitize_keeps_unicode() {
-        assert_eq!(sanitize_name("My Show S01E05 [1080p]"), "My Show S01E05 [1080p]");
+        assert_eq!(
+            sanitize_name("My Show S01E05 [1080p]"),
+            "My Show S01E05 [1080p]"
+        );
         assert_eq!(sanitize_name("My Video (2024)"), "My Video (2024)");
         assert_eq!(sanitize_name("  hello  "), "hello");
         assert_eq!(sanitize_name("file/with\\bad:chars"), "file_with_bad_chars");

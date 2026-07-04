@@ -1,18 +1,24 @@
+use crate::progress::ProgressMap;
+use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::sync::Arc;
-use sqlx::SqlitePool;
 use tokio::time::{interval, Duration};
 use tracing::{error, warn};
-use crate::progress::ProgressMap;
 
-pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) -> tokio::task::JoinHandle<()> {
+pub fn start(
+    metube_url: String,
+    pool: Arc<SqlitePool>,
+    progress: ProgressMap,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(5));
         loop {
             ticker.tick().await;
             match crate::metube::get_queue_state(&metube_url).await {
                 Ok(state) => {
-                    let live: HashSet<String> = state.active.iter()
+                    let live: HashSet<String> = state
+                        .active
+                        .iter()
                         .chain(state.pending.iter())
                         .map(|i| i.url.clone())
                         .collect();
@@ -30,25 +36,37 @@ pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) -
                                 }
                             }
                             Ok(None) => {}
-                            Err(e) => error!(error = %e, url = %item.url, "db error fetching sub for progress"),
+                            Err(e) => {
+                                error!(error = %e, url = %item.url, "db error fetching sub for progress")
+                            }
                         }
                         if let Some(title) = &item.title {
-                            if let Err(e) = crate::db::update_submission_title(&pool, &item.url, title).await {
+                            if let Err(e) =
+                                crate::db::update_submission_title(&pool, &item.url, title).await
+                            {
                                 error!(error = %e, url = %item.url, "db error updating title");
                             }
                         }
                     }
 
                     for item in &state.errored {
-                        if live.contains(&item.url) { continue; }
-                        if let Err(e) = crate::db::mark_active_as_error_by_url(&pool, &item.url).await {
+                        if live.contains(&item.url) {
+                            continue;
+                        }
+                        if let Err(e) =
+                            crate::db::mark_active_as_error_by_url(&pool, &item.url).await
+                        {
                             error!(error = %e, url = %item.url, "db error marking as error");
                         }
-                        if let Ok(Some(sub)) = crate::db::get_submission_by_url(&pool, &item.url).await {
+                        if let Ok(Some(sub)) =
+                            crate::db::get_submission_by_url(&pool, &item.url).await
+                        {
                             crate::progress::remove(&progress, &sub.id);
                         }
                         if let Some(title) = &item.title {
-                            if let Err(e) = crate::db::update_submission_title(&pool, &item.url, title).await {
+                            if let Err(e) =
+                                crate::db::update_submission_title(&pool, &item.url, title).await
+                            {
                                 error!(error = %e, url = %item.url, "db error updating title");
                             }
                         }

@@ -16,19 +16,24 @@ mod url_validator;
 mod video_meta;
 mod watcher;
 
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use std::sync::Arc;
-use axum::{routing::{get, post}, Router};
-use tower_http::cors::{CorsLayer, Any};
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::ServeDir;
-use tower_sessions::{SessionManagerLayer, cookie::SameSite};
+use tower_sessions::{cookie::SameSite, SessionManagerLayer};
 use tower_sessions_sqlx_store::SqliteStore;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "tubemin=info".into()))
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "tubemin=info".into()),
+        )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
@@ -46,7 +51,14 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Auto-provision PeerTube bot account if admin credentials are provided
-    if let (Some(url), Some(host), Some(admin_user), Some(admin_pass), Some(bot_user), Some(bot_pass)) = (
+    if let (
+        Some(url),
+        Some(host),
+        Some(admin_user),
+        Some(admin_pass),
+        Some(bot_user),
+        Some(bot_pass),
+    ) = (
         &config.peertube_url,
         config.peertube_host.as_deref(),
         &config.peertube_admin_username,
@@ -55,18 +67,40 @@ async fn main() -> anyhow::Result<()> {
         &config.peertube_password,
     ) {
         if admin_user != bot_user {
-            let bot_email = config.peertube_admin_email.as_deref()
+            let bot_email = config
+                .peertube_admin_email
+                .as_deref()
                 .and_then(|e| e.split('@').nth(1))
                 .map(|domain| format!("{}@{}", bot_user, domain))
                 .unwrap_or_else(|| format!("{}@peertube.example", bot_user));
-            if let Err(e) = peertube::ensure_account(url, Some(host), admin_user, admin_pass, bot_user, bot_pass, &bot_email).await {
-                tracing::warn!("PeerTube bot account provisioning failed (will retry on next start): {}", e);
+            if let Err(e) = peertube::ensure_account(
+                url,
+                Some(host),
+                admin_user,
+                admin_pass,
+                bot_user,
+                bot_pass,
+                &bot_email,
+            )
+            .await
+            {
+                tracing::warn!(
+                    "PeerTube bot account provisioning failed (will retry on next start): {}",
+                    e
+                );
             }
         }
     }
 
     // Auto-install & configure PeerTube's OIDC login plugin, and require login
-    if let (Some(url), Some(admin_user), Some(admin_pass), Some(issuer), Some(client_id), Some(client_secret)) = (
+    if let (
+        Some(url),
+        Some(admin_user),
+        Some(admin_pass),
+        Some(issuer),
+        Some(client_id),
+        Some(client_secret),
+    ) = (
         &config.peertube_url,
         &config.peertube_admin_username,
         &config.peertube_admin_password,
@@ -82,19 +116,36 @@ async fn main() -> anyhow::Result<()> {
             issuer,
             client_id,
             client_secret,
-        ).await {
-            tracing::warn!("PeerTube OIDC plugin setup failed (will retry on next start): {}", e);
+        )
+        .await
+        {
+            tracing::warn!(
+                "PeerTube OIDC plugin setup failed (will retry on next start): {}",
+                e
+            );
         }
     }
 
     // Poll MeTube queue to transition pending → downloading
-    poller::start(config.metube_url.clone(), pool.clone(), progress_map.clone());
+    poller::start(
+        config.metube_url.clone(),
+        pool.clone(),
+        progress_map.clone(),
+    );
 
     // Socket.IO listener for real-time MeTube download progress
-    metube_socket::start(config.metube_url.clone(), pool.clone(), progress_map.clone());
+    metube_socket::start(
+        config.metube_url.clone(),
+        pool.clone(),
+        progress_map.clone(),
+    );
 
     // Start file watcher
-    let pt_config = match (&config.peertube_url, &config.peertube_username, &config.peertube_password) {
+    let pt_config = match (
+        &config.peertube_url,
+        &config.peertube_username,
+        &config.peertube_password,
+    ) {
         (Some(url), Some(user), Some(pass)) => Some(watcher::PeerTubeConfig {
             url: url.clone(),
             host: config.peertube_host.clone(),
@@ -128,8 +179,7 @@ async fn main() -> anyhow::Result<()> {
     // Session layer — backed by the existing SQLite DB so sessions survive restarts
     let session_store = SqliteStore::new((*pool).clone());
     session_store.migrate().await?;
-    let session_layer = SessionManagerLayer::new(session_store)
-        .with_same_site(SameSite::Lax);
+    let session_layer = SessionManagerLayer::new(session_store).with_same_site(SameSite::Lax);
 
     // Auth routes depend on configured mode
     let auth_router: Router<state::AppState> = match config.auth_mode {
@@ -143,7 +193,10 @@ async fn main() -> anyhow::Result<()> {
         config::AuthMode::Password => {
             tracing::info!("Auth mode: password");
             Router::new()
-                .route("/auth/login", get(password_auth::login_form).post(password_auth::login_submit))
+                .route(
+                    "/auth/login",
+                    get(password_auth::login_form).post(password_auth::login_submit),
+                )
                 .route("/auth/logout", get(password_auth::logout))
         }
     };
@@ -154,14 +207,23 @@ async fn main() -> anyhow::Result<()> {
         .allow_headers(Any);
 
     let app = Router::new()
-        .route("/", get(|| async { axum::response::Redirect::to("/auth/login") }))
-        .route("/health", get(|| async { axum::Json(serde_json::json!({"status": "ok"})) }))
+        .route(
+            "/",
+            get(|| async { axum::response::Redirect::to("/auth/login") }),
+        )
+        .route(
+            "/health",
+            get(|| async { axum::Json(serde_json::json!({"status": "ok"})) }),
+        )
         .route("/api/submit", post(handlers::submit))
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
         .route("/api/check-submission", get(handlers::check_submission))
         .route("/api/submissions", get(handlers::list_submissions))
-        .route("/api/submissions/delete", post(handlers::delete_submissions))
+        .route(
+            "/api/submissions/delete",
+            post(handlers::delete_submissions),
+        )
         .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
