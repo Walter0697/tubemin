@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/Walter0697/tubemin/compare/v0.6.0...v0.7.0) (2026-07-04)
+
+
+### Features
+
+* add submitter ownership tags for uploads ([#14](https://github.com/Walter0697/tubemin/issues/14)) ([1493670](https://github.com/Walter0697/tubemin/commit/149367074d6db8900fe19620888698d628ad74c6))
+
 ## [0.6.0](https://github.com/Walter0697/tubemin/compare/v0.5.0...v0.6.0) (2026-07-04)
 
 
