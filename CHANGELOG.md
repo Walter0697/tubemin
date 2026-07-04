@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/Walter0697/tubemin/compare/v0.5.0...v0.6.0) (2026-07-04)
+
+
+### Features
+
+* mobile responsiveness for login, dashboard, and settings pages ([#12](https://github.com/Walter0697/tubemin/issues/12)) ([74bf7f6](https://github.com/Walter0697/tubemin/commit/74bf7f67444bf4d875dba245705755cab24a8c19))
+
 ## [0.5.0](https://github.com/Walter0697/tubemin/compare/v0.4.0...v0.5.0) (2026-07-03)
 
 
