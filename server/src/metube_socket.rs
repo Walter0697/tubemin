@@ -1,8 +1,8 @@
-use std::sync::Arc;
+use crate::progress::ProgressMap;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tokio::time::Duration;
 use tracing::{info, warn};
-use crate::progress::ProgressMap;
 
 pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) {
     tokio::spawn(async move {
@@ -18,12 +18,14 @@ pub fn start(metube_url: String, pool: Arc<SqlitePool>, progress: ProgressMap) {
 }
 
 async fn run(metube_url: &str, pool: &SqlitePool, progress: &ProgressMap) -> anyhow::Result<()> {
-    use tokio_tungstenite::{connect_async, tungstenite::Message};
     use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::{connect_async, tungstenite::Message};
 
     // Engine.IO v4 polling handshake to get session ID
     let body = reqwest::get(format!("{}/socket.io/?EIO=4&transport=polling", metube_url))
-        .await?.text().await?;
+        .await?
+        .text()
+        .await?;
     if !body.starts_with('0') {
         return Err(anyhow::anyhow!("unexpected EIO open packet: {}", body));
     }
@@ -34,7 +36,9 @@ async fn run(metube_url: &str, pool: &SqlitePool, progress: &ProgressMap) -> any
 
     let ws_url = format!(
         "{}/socket.io/?EIO=4&transport=websocket&sid={}",
-        metube_url.replace("http://", "ws://").replace("https://", "wss://"),
+        metube_url
+            .replace("http://", "ws://")
+            .replace("https://", "wss://"),
         sid
     );
     let (mut ws, _) = connect_async(&ws_url).await?;
@@ -65,11 +69,18 @@ async fn run(metube_url: &str, pool: &SqlitePool, progress: &ProgressMap) -> any
                 if let Ok(arr) = serde_json::from_str::<serde_json::Value>(&t[2..]) {
                     match arr[0].as_str() {
                         Some("updated") | Some("added") => {
-                            handle_item(arr.get(1).unwrap_or(&serde_json::Value::Null), pool, progress).await;
+                            handle_item(
+                                arr.get(1).unwrap_or(&serde_json::Value::Null),
+                                pool,
+                                progress,
+                            )
+                            .await;
                         }
                         Some("completed") | Some("error") => {
                             if let Some(url) = arr.get(1).and_then(|d| d["url"].as_str()) {
-                                if let Ok(Some(sub)) = crate::db::get_submission_by_url(pool, url).await {
+                                if let Ok(Some(sub)) =
+                                    crate::db::get_submission_by_url(pool, url).await
+                                {
                                     crate::progress::remove(progress, &sub.id);
                                 }
                             }

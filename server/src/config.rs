@@ -58,16 +58,24 @@ impl Config {
 
         if auth_mode == AuthMode::Oidc {
             if oidc_issuer_url.is_none() {
-                return Err(anyhow::anyhow!("OIDC_ISSUER_URL required when AUTH_MODE=oidc"));
+                return Err(anyhow::anyhow!(
+                    "OIDC_ISSUER_URL required when AUTH_MODE=oidc"
+                ));
             }
             if oidc_client_id.is_none() {
-                return Err(anyhow::anyhow!("OIDC_CLIENT_ID required when AUTH_MODE=oidc"));
+                return Err(anyhow::anyhow!(
+                    "OIDC_CLIENT_ID required when AUTH_MODE=oidc"
+                ));
             }
             if oidc_client_secret.is_none() {
-                return Err(anyhow::anyhow!("OIDC_CLIENT_SECRET required when AUTH_MODE=oidc"));
+                return Err(anyhow::anyhow!(
+                    "OIDC_CLIENT_SECRET required when AUTH_MODE=oidc"
+                ));
             }
             if oidc_redirect_url.is_none() {
-                return Err(anyhow::anyhow!("OIDC_REDIRECT_URL required when AUTH_MODE=oidc"));
+                return Err(anyhow::anyhow!(
+                    "OIDC_REDIRECT_URL required when AUTH_MODE=oidc"
+                ));
             }
         }
 
@@ -75,14 +83,12 @@ impl Config {
             api_port: std::env::var("API_PORT")
                 .unwrap_or_else(|_| "3000".into())
                 .parse()?,
-            metube_url: std::env::var("METUBE_URL")
-                .unwrap_or_else(|_| "http://metube:8081".into()),
+            metube_url: std::env::var("METUBE_URL").unwrap_or_else(|_| "http://metube:8081".into()),
             downloads_dir: PathBuf::from(
                 std::env::var("DOWNLOADS_DIR").unwrap_or_else(|_| "/downloads".into()),
             ),
             peertube_import_dir: PathBuf::from(
-                std::env::var("PEERTUBE_IMPORT_DIR")
-                    .unwrap_or_else(|_| "/peertube-import".into()),
+                std::env::var("PEERTUBE_IMPORT_DIR").unwrap_or_else(|_| "/peertube-import".into()),
             ),
             database_url: std::env::var("DATABASE_URL")?,
             auth_mode,
@@ -99,7 +105,7 @@ impl Config {
             peertube_password: std::env::var("PEERTUBE_PASSWORD").ok(),
             peertube_admin_email: std::env::var("PEERTUBE_ADMIN_EMAIL").ok(),
             peertube_admin_username: Some(
-                std::env::var("PEERTUBE_ADMIN_USERNAME").unwrap_or_else(|_| "root".into())
+                std::env::var("PEERTUBE_ADMIN_USERNAME").unwrap_or_else(|_| "root".into()),
             ),
             peertube_admin_password: std::env::var("PEERTUBE_ADMIN_PASSWORD").ok(),
             peertube_video_privacy: {
@@ -109,7 +115,8 @@ impl Config {
                     .unwrap_or(4);
                 if !(1..=4).contains(&v) {
                     return Err(anyhow::anyhow!(
-                        "PEERTUBE_VIDEO_PRIVACY must be 1-4 (got {})", v
+                        "PEERTUBE_VIDEO_PRIVACY must be 1-4 (got {})",
+                        v
                     ));
                 }
                 v
@@ -145,7 +152,10 @@ mod tests {
         std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
         std::env::set_var("OIDC_CLIENT_ID", "tubemin");
         std::env::set_var("OIDC_CLIENT_SECRET", "secret");
-        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var(
+            "OIDC_REDIRECT_URL",
+            "https://tubemin.example.com/auth/callback",
+        );
 
         let config = Config::from_env().unwrap();
         assert_eq!(config.api_port, 3000);
@@ -188,7 +198,10 @@ mod tests {
         std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
         std::env::set_var("OIDC_CLIENT_ID", "tubemin");
         std::env::set_var("OIDC_CLIENT_SECRET", "secret");
-        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var(
+            "OIDC_REDIRECT_URL",
+            "https://tubemin.example.com/auth/callback",
+        );
         std::env::remove_var("PEERTUBE_VIDEO_PRIVACY");
 
         let config = Config::from_env().unwrap();
@@ -203,7 +216,10 @@ mod tests {
         std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
         std::env::set_var("OIDC_CLIENT_ID", "tubemin");
         std::env::set_var("OIDC_CLIENT_SECRET", "secret");
-        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var(
+            "OIDC_REDIRECT_URL",
+            "https://tubemin.example.com/auth/callback",
+        );
         std::env::set_var("PEERTUBE_VIDEO_PRIVACY", "1");
 
         let config = Config::from_env().unwrap();
@@ -218,7 +234,10 @@ mod tests {
         std::env::set_var("OIDC_ISSUER_URL", "https://auth.example.com");
         std::env::set_var("OIDC_CLIENT_ID", "tubemin");
         std::env::set_var("OIDC_CLIENT_SECRET", "secret");
-        std::env::set_var("OIDC_REDIRECT_URL", "https://tubemin.example.com/auth/callback");
+        std::env::set_var(
+            "OIDC_REDIRECT_URL",
+            "https://tubemin.example.com/auth/callback",
+        );
         std::env::set_var("PEERTUBE_VIDEO_PRIVACY", "5");
 
         assert!(Config::from_env().is_err());

@@ -1,7 +1,7 @@
-use std::sync::Arc;
-use sqlx::SqlitePool;
 use crate::config::Config;
 use crate::progress::ProgressMap;
+use sqlx::SqlitePool;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {

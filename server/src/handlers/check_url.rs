@@ -11,6 +11,10 @@ pub async fn check_url(Query(params): Query<CheckUrlParams>) -> impl IntoRespons
     if crate::url_validator::is_supported_url(&params.url) {
         (StatusCode::OK, Json(json!({"supported": true}))).into_response()
     } else {
-        (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({"supported": false}))).into_response()
+        (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"supported": false})),
+        )
+            .into_response()
     }
 }

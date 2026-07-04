@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use sqlx::SqlitePool;
+use std::sync::Arc;
 use tokio::time::{interval, Duration, Instant};
 use tracing::{error, info, warn};
 
@@ -30,7 +30,9 @@ pub fn start(
                 Err(e) => { error!(error = %e, "transcoding poller db error"); continue; }
             };
 
-            if rows.is_empty() { continue; }
+            if rows.is_empty() {
+                continue;
+            }
 
             // Reuse cached token until it nears expiry, then refresh once.
             let token = match cached_token.take() {
@@ -85,19 +87,38 @@ fn client() -> &'static reqwest::Client {
     HTTP_CLIENT.get_or_init(reqwest::Client::new)
 }
 
-async fn fetch_token(url: &str, host: Option<&str>, username: &str, password: &str) -> anyhow::Result<String> {
+async fn fetch_token(
+    url: &str,
+    host: Option<&str>,
+    username: &str,
+    password: &str,
+) -> anyhow::Result<String> {
     use serde::Deserialize;
-    #[derive(Deserialize)] struct OAuthClient { client_id: String, client_secret: String }
-    #[derive(Deserialize)] struct TokenResp { access_token: String }
+    #[derive(Deserialize)]
+    struct OAuthClient {
+        client_id: String,
+        client_secret: String,
+    }
+    #[derive(Deserialize)]
+    struct TokenResp {
+        access_token: String,
+    }
 
-    let h = host.map(|s| s.to_string())
+    let h = host
+        .map(|s| s.to_string())
         .unwrap_or_else(|| derive_host(url));
 
-    let body = client().get(format!("{}/api/v1/oauth-clients/local", url))
-        .header("Host", &h).send().await?.text().await?;
+    let body = client()
+        .get(format!("{}/api/v1/oauth-clients/local", url))
+        .header("Host", &h)
+        .send()
+        .await?
+        .text()
+        .await?;
     let oauth: OAuthClient = serde_json::from_str(&body)?;
 
-    let body = client().post(format!("{}/api/v1/users/token", url))
+    let body = client()
+        .post(format!("{}/api/v1/users/token", url))
         .header("Host", &h)
         .form(&[
             ("client_id", oauth.client_id.as_str()),
@@ -107,24 +128,41 @@ async fn fetch_token(url: &str, host: Option<&str>, username: &str, password: &s
             ("username", username),
             ("password", password),
         ])
-        .send().await?.text().await?;
+        .send()
+        .await?
+        .text()
+        .await?;
     let token: TokenResp = serde_json::from_str(&body)
         .map_err(|e| anyhow::anyhow!("token parse error ({e}): {body}"))?;
     Ok(token.access_token)
 }
 
-async fn fetch_video_state(url: &str, host: Option<&str>, token: &str, uuid: &str) -> anyhow::Result<u64> {
+async fn fetch_video_state(
+    url: &str,
+    host: Option<&str>,
+    token: &str,
+    uuid: &str,
+) -> anyhow::Result<u64> {
     use serde::Deserialize;
-    #[derive(Deserialize)] struct State { id: u64 }
-    #[derive(Deserialize)] struct Video { state: State }
+    #[derive(Deserialize)]
+    struct State {
+        id: u64,
+    }
+    #[derive(Deserialize)]
+    struct Video {
+        state: State,
+    }
 
-    let h = host.map(|s| s.to_string())
+    let h = host
+        .map(|s| s.to_string())
         .unwrap_or_else(|| derive_host(url));
 
-    let resp = client().get(format!("{}/api/v1/videos/{}", url, uuid))
+    let resp = client()
+        .get(format!("{}/api/v1/videos/{}", url, uuid))
         .header("Host", &h)
         .bearer_auth(token)
-        .send().await?;
+        .send()
+        .await?;
 
     if !resp.status().is_success() {
         return Err(anyhow::anyhow!("PeerTube returned {}", resp.status()));

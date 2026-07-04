@@ -44,7 +44,12 @@ pub fn format_description(meta: &VideoMeta) -> String {
 // yt-dlp upload_date is YYYYMMDD; PeerTube expects ISO 8601
 pub fn upload_date_to_iso(date: &str) -> Option<String> {
     if date.len() == 8 && date.chars().all(|c| c.is_ascii_digit()) {
-        Some(format!("{}-{}-{}T00:00:00.000Z", &date[..4], &date[4..6], &date[6..8]))
+        Some(format!(
+            "{}-{}-{}T00:00:00.000Z",
+            &date[..4],
+            &date[4..6],
+            &date[6..8]
+        ))
     } else {
         None
     }
@@ -56,7 +61,10 @@ mod tests {
 
     #[test]
     fn upload_date_converts_correctly() {
-        assert_eq!(upload_date_to_iso("20240315"), Some("2024-03-15T00:00:00.000Z".into()));
+        assert_eq!(
+            upload_date_to_iso("20240315"),
+            Some("2024-03-15T00:00:00.000Z".into())
+        );
         assert_eq!(upload_date_to_iso("bad"), None);
         assert_eq!(upload_date_to_iso(""), None);
     }
@@ -95,7 +103,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let video = dir.path().join("video.mp4");
         let info = dir.path().join("video.info.json");
-        std::fs::write(&info, r#"{"title":"My Vid","description":"Desc","uploader":"Chan","upload_date":"20230101"}"#).unwrap();
+        std::fs::write(
+            &info,
+            r#"{"title":"My Vid","description":"Desc","uploader":"Chan","upload_date":"20230101"}"#,
+        )
+        .unwrap();
         let meta = load_for(&video);
         assert_eq!(meta.title.as_deref(), Some("My Vid"));
         assert_eq!(meta.uploader.as_deref(), Some("Chan"));

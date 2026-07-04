@@ -1,6 +1,6 @@
 use reqwest::Client;
-use thiserror::Error;
 use serde_json::json;
+use thiserror::Error;
 
 static HTTP_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
 fn client() -> &'static Client {
@@ -33,15 +33,22 @@ pub struct QueueState {
 fn extract_items(arr: Option<&serde_json::Value>, error_filter: bool) -> Vec<QueueItem> {
     arr.and_then(|v| v.as_array())
         .map(|items| {
-            items.iter().filter_map(|item| {
-                if error_filter && item["status"].as_str() != Some("error") {
-                    return None;
-                }
-                let url = item["url"].as_str()?.to_string();
-                let title = item["title"].as_str().map(str::to_string);
-                let percent = item["percent"].as_f64();
-                Some(QueueItem { url, title, percent })
-            }).collect()
+            items
+                .iter()
+                .filter_map(|item| {
+                    if error_filter && item["status"].as_str() != Some("error") {
+                        return None;
+                    }
+                    let url = item["url"].as_str()?.to_string();
+                    let title = item["title"].as_str().map(str::to_string);
+                    let percent = item["percent"].as_f64();
+                    Some(QueueItem {
+                        url,
+                        title,
+                        percent,
+                    })
+                })
+                .collect()
         })
         .unwrap_or_default()
 }
@@ -58,9 +65,9 @@ pub async fn get_queue_state(metube_url: &str) -> Result<QueueState, MeTubeError
 
     let data: serde_json::Value = resp.json().await?;
     Ok(QueueState {
-        active:  extract_items(data.get("queue"),   false),
+        active: extract_items(data.get("queue"), false),
         pending: extract_items(data.get("pending"), false),
-        errored: extract_items(data.get("done"),    true),  // true = filter to error status only
+        errored: extract_items(data.get("done"), true), // true = filter to error status only
     })
 }
 
@@ -85,9 +92,9 @@ pub async fn submit(metube_url: &str, url: &str) -> Result<(), MeTubeError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wiremock::{MockServer, Mock, ResponseTemplate};
-    use wiremock::matchers::{method, path, body_json};
     use serde_json::json;
+    use wiremock::matchers::{body_json, method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
     async fn posts_to_metube_add() {
