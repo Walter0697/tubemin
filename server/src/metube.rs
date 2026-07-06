@@ -21,6 +21,11 @@ pub struct QueueItem {
     pub percent: Option<f64>,
 }
 
+pub struct FinishedFile {
+    pub url: String,
+    pub filename: String,
+}
+
 pub struct QueueState {
     /// URLs MeTube is actively downloading
     pub active: Vec<QueueItem>,
@@ -28,6 +33,8 @@ pub struct QueueState {
     pub pending: Vec<QueueItem>,
     /// URLs MeTube finished with an error
     pub errored: Vec<QueueItem>,
+    /// URLs MeTube finished successfully, with the on-disk filename it wrote
+    pub finished: Vec<FinishedFile>,
 }
 
 fn extract_items(arr: Option<&serde_json::Value>, error_filter: bool) -> Vec<QueueItem> {
@@ -68,7 +75,27 @@ pub async fn get_queue_state(metube_url: &str) -> Result<QueueState, MeTubeError
         active: extract_items(data.get("queue"), false),
         pending: extract_items(data.get("pending"), false),
         errored: extract_items(data.get("done"), true), // true = filter to error status only
+        finished: extract_finished(data.get("done")),
     })
+}
+
+fn extract_finished(arr: Option<&serde_json::Value>) -> Vec<FinishedFile> {
+    arr.and_then(|v| v.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    if item["status"].as_str() != Some("finished") {
+                        return None;
+                    }
+                    Some(FinishedFile {
+                        url: item["url"].as_str()?.to_string(),
+                        filename: item["filename"].as_str()?.to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 pub async fn submit(metube_url: &str, url: &str) -> Result<(), MeTubeError> {
@@ -125,6 +152,29 @@ mod tests {
 
         let state = get_queue_state(&server.uri()).await.unwrap();
         assert_eq!(state.active[0].percent, Some(42.5));
+    }
+
+    #[tokio::test]
+    async fn parses_finished_files_from_done() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/history"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "queue": [],
+                "pending": [],
+                "done": [
+                    {"url": "https://example.com/ok", "status": "finished", "filename": "ok.webm"},
+                    {"url": "https://example.com/bad", "status": "error"},
+                    {"url": "https://example.com/nofile", "status": "finished"}
+                ]
+            })))
+            .mount(&server)
+            .await;
+
+        let state = get_queue_state(&server.uri()).await.unwrap();
+        assert_eq!(state.finished.len(), 1);
+        assert_eq!(state.finished[0].url, "https://example.com/ok");
+        assert_eq!(state.finished[0].filename, "ok.webm");
     }
 
     #[tokio::test]

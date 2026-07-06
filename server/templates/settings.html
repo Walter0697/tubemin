@@ -25,6 +25,8 @@
     <p class="section-title">API Keys</p>
     <form method="POST" action="/settings/keys/generate" style="margin-bottom: 16px;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="field-label" for="key-label">Key label</label>
+      <input id="key-label" name="label" type="text" placeholder="extension or ios-shortcut" style="margin-bottom: 10px;">
       <button type="submit">Generate New Key</button>
     </form>
     <div class="table-scroll">

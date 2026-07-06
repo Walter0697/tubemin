@@ -7,6 +7,7 @@ pub struct Submission {
     pub id: String,
     pub url: String,
     pub source_url: Option<String>,
+    pub source: Option<String>,
     pub title: Option<String>,
     pub filename: Option<String>,
     pub peertube_thumb: Option<String>,
@@ -33,6 +34,7 @@ pub async fn create_submission(
     id: &str,
     url: &str,
     source_url: Option<&str>,
+    source: Option<&str>,
     is_direct: bool,
     title: Option<&str>,
     api_key_id: Option<&str>,
@@ -42,11 +44,12 @@ pub async fn create_submission(
 ) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "INSERT INTO submissions (id, url, source_url, title, status, is_direct, api_key_id, submitter_sub, submitter_display, submitter_tag, submitted_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO submissions (id, url, source_url, source, title, status, is_direct, api_key_id, submitter_sub, submitter_display, submitter_tag, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(id)
     .bind(url)
     .bind(source_url)
+    .bind(source)
     .bind(title)
     .bind(is_direct)
     .bind(api_key_id)
@@ -165,7 +168,7 @@ pub async fn mark_pending_as_error_by_url(pool: &SqlitePool, url: &str) -> Resul
 pub async fn mark_downloading(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'downloading', updated_at = ? WHERE url = ? AND status = 'pending'"
+        "UPDATE submissions SET status = 'downloading', updated_at = ? WHERE url = ? AND status IN ('pending', 'interrupted')"
     )
     .bind(&now)
     .bind(url)
@@ -192,14 +195,50 @@ pub async fn mark_imported_by_url(
     Ok(())
 }
 
+/// Record the on-disk filename MeTube reported for a URL (from its socket
+/// events or /history), so the watcher can match landed files to submissions
+/// exactly. First writer wins; a resubmit clears filename and re-arms this.
+pub async fn set_filename_by_url(
+    pool: &SqlitePool,
+    url: &str,
+    filename: &str,
+) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions SET filename = ?, updated_at = ? WHERE url = ? AND filename IS NULL",
+    )
+    .bind(filename)
+    .bind(&now)
+    .bind(url)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
-    // yt-dlp filenames can't be mapped back to the submitted URL, so we match
-    // the oldest in-progress MeTube submission. is_direct=1 rows are excluded
-    // because those are handled by mark_imported_by_url with URL matching.
+    // Prefer the submission whose MeTube-reported filename matches this file
+    // exactly. 'error' and 'interrupted' are included so rows marked during a
+    // MeTube/tubemin restart recover when their file eventually lands.
+    let claimed = sqlx::query(
+        "UPDATE submissions SET status = 'imported', updated_at = ?
+         WHERE filename = ? AND is_direct = 0
+           AND status IN ('pending', 'downloading', 'interrupted', 'error')",
+    )
+    .bind(&now)
+    .bind(filename)
+    .execute(pool)
+    .await?;
+    if claimed.rows_affected() > 0 {
+        return Ok(());
+    }
+    // Fallback when no filename was recorded (e.g. tubemin was down for the
+    // whole download): match the oldest in-progress MeTube submission.
+    // is_direct=1 rows are excluded because those are handled by
+    // mark_imported_by_url with URL matching.
     sqlx::query(
         "UPDATE submissions SET status = 'imported', filename = ?, updated_at = ?
-         WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') AND is_direct = 0 ORDER BY submitted_at ASC LIMIT 1)"
+         WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') AND is_direct = 0 AND filename IS NULL ORDER BY submitted_at ASC LIMIT 1)"
     )
     .bind(filename)
     .bind(&now)
@@ -209,7 +248,7 @@ pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx
 }
 
 /// On startup: direct downloads in 'downloading' had their ffmpeg process killed — mark as error.
-/// MeTube downloads in 'downloading' are reset to 'pending' so the poller can re-detect them.
+/// MeTube downloads in 'downloading' are marked as interrupted until the poller sees them again.
 pub async fn reset_interrupted_downloads(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
@@ -219,7 +258,7 @@ pub async fn reset_interrupted_downloads(pool: &SqlitePool) -> Result<(), sqlx::
     .execute(pool)
     .await?;
     sqlx::query(
-        "UPDATE submissions SET status = 'pending', updated_at = ? WHERE status = 'downloading' AND is_direct = 0"
+        "UPDATE submissions SET status = 'interrupted', updated_at = ? WHERE status = 'downloading' AND is_direct = 0"
     )
     .bind(&now)
     .execute(pool)
@@ -301,6 +340,18 @@ pub async fn get_submitter_by_filename(
     Ok(row.unwrap_or((None, None)))
 }
 
+pub async fn get_source_by_filename(
+    pool: &SqlitePool,
+    filename: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT source FROM submissions WHERE filename = ? LIMIT 1")
+            .bind(filename)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(source,)| source))
+}
+
 pub async fn get_submission_by_url(
     pool: &SqlitePool,
     url: &str,
@@ -318,15 +369,17 @@ pub async fn reset_submission_to_pending(
     pool: &SqlitePool,
     url: &str,
     api_key_id: Option<&str>,
+    source: Option<&str>,
     submitter_sub: Option<&str>,
     submitter_display: Option<&str>,
     submitter_tag: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     let result = sqlx::query(
-        "UPDATE submissions SET status = 'pending', filename = NULL, api_key_id = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status = 'error'"
+        "UPDATE submissions SET status = 'pending', filename = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status IN ('error', 'interrupted')"
     )
     .bind(api_key_id)
+    .bind(source)
     .bind(submitter_sub)
     .bind(submitter_display)
     .bind(submitter_tag)
@@ -507,6 +560,7 @@ mod tests {
             "test-id",
             "https://example.com/video",
             None,
+            None,
             false,
             None,
             None,
@@ -529,6 +583,7 @@ mod tests {
             "test-id-2",
             "https://example.com/video2",
             None,
+            None,
             false,
             None,
             None,
@@ -544,6 +599,106 @@ mod tests {
         assert_eq!(rows[0].filename.as_deref(), Some("video.mp4"));
     }
 
+    async fn create_basic(pool: &SqlitePool, id: &str, url: &str) {
+        create_submission(pool, id, url, None, None, false, None, None, None, None, None)
+            .await
+            .unwrap();
+        // submitted_at has second precision in RFC3339; force distinct ordering
+        sqlx::query("UPDATE submissions SET submitted_at = ? WHERE id = ?")
+            .bind(format!("2026-01-01T00:00:{:02}Z", {
+                let n: i64 =
+                    sqlx::query_scalar("SELECT COUNT(*) FROM submissions")
+                        .fetch_one(pool)
+                        .await
+                        .unwrap();
+                n
+            }))
+            .bind(id)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+
+    async fn status_of(pool: &SqlitePool, id: &str) -> (String, Option<String>) {
+        sqlx::query_as("SELECT status, filename FROM submissions WHERE id = ?")
+            .bind(id)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn set_filename_by_url_first_writer_wins() {
+        let pool = test_pool().await;
+        create_basic(&pool, "a", "https://example.com/a").await;
+        set_filename_by_url(&pool, "https://example.com/a", "a.webm")
+            .await
+            .unwrap();
+        set_filename_by_url(&pool, "https://example.com/a", "other.webm")
+            .await
+            .unwrap();
+        let (_, filename) = status_of(&pool, "a").await;
+        assert_eq!(filename.as_deref(), Some("a.webm"));
+    }
+
+    // Regression: downloads finishing out of submission order must not swap rows.
+    #[tokio::test]
+    async fn mark_imported_prefers_exact_filename_match() {
+        let pool = test_pool().await;
+        create_basic(&pool, "older", "https://example.com/older").await;
+        create_basic(&pool, "newer", "https://example.com/newer").await;
+        mark_downloading(&pool, "https://example.com/older").await.unwrap();
+        mark_downloading(&pool, "https://example.com/newer").await.unwrap();
+        set_filename_by_url(&pool, "https://example.com/newer", "newer.webm")
+            .await
+            .unwrap();
+
+        // The newer submission's file lands first
+        mark_imported(&pool, "newer.webm").await.unwrap();
+
+        let (newer_status, newer_file) = status_of(&pool, "newer").await;
+        assert_eq!(newer_status, "imported");
+        assert_eq!(newer_file.as_deref(), Some("newer.webm"));
+        let (older_status, older_file) = status_of(&pool, "older").await;
+        assert_eq!(older_status, "downloading", "older row must not claim the file");
+        assert_eq!(older_file, None);
+    }
+
+    #[tokio::test]
+    async fn mark_imported_falls_back_to_oldest_without_recorded_filename() {
+        let pool = test_pool().await;
+        create_basic(&pool, "older", "https://example.com/older").await;
+        create_basic(&pool, "newer", "https://example.com/newer").await;
+        mark_downloading(&pool, "https://example.com/older").await.unwrap();
+        mark_downloading(&pool, "https://example.com/newer").await.unwrap();
+
+        mark_imported(&pool, "mystery.webm").await.unwrap();
+
+        let (older_status, older_file) = status_of(&pool, "older").await;
+        assert_eq!(older_status, "imported");
+        assert_eq!(older_file.as_deref(), Some("mystery.webm"));
+    }
+
+    // A row stuck in 'error' (e.g. marked during a MeTube restart) must recover
+    // when its file eventually lands.
+    #[tokio::test]
+    async fn mark_imported_revives_errored_row_with_matching_filename() {
+        let pool = test_pool().await;
+        create_basic(&pool, "e1", "https://example.com/e1").await;
+        sqlx::query("UPDATE submissions SET status='error' WHERE id='e1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        set_filename_by_url(&pool, "https://example.com/e1", "e1.webm")
+            .await
+            .unwrap();
+
+        mark_imported(&pool, "e1.webm").await.unwrap();
+
+        let (status, _) = status_of(&pool, "e1").await;
+        assert_eq!(status, "imported");
+    }
+
     #[tokio::test]
     async fn mark_transcoding_transitions_imported() {
         let pool = test_pool().await;
@@ -551,6 +706,7 @@ mod tests {
             &pool,
             "t1",
             "https://example.com/v",
+            None,
             None,
             false,
             None,
@@ -581,6 +737,7 @@ mod tests {
             "t2",
             "https://example.com/v2",
             None,
+            None,
             false,
             None,
             None,
@@ -610,6 +767,7 @@ mod tests {
             "direct-id",
             "https://cdn.example.com/video.m3u8",
             None,
+            None,
             true,
             None,
             None,
@@ -623,6 +781,7 @@ mod tests {
             &pool,
             "metube-id",
             "https://www.youtube.com/watch?v=abc",
+            None,
             None,
             false,
             None,
@@ -653,12 +812,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn reset_interrupted_downloads_marks_metube_rows_interrupted() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "metube-id",
+            "https://www.youtube.com/watch?v=abc",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE submissions SET status='downloading' WHERE id='metube-id'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        reset_interrupted_downloads(&pool).await.unwrap();
+
+        let rows = list_submissions(&pool).await.unwrap();
+        assert_eq!(rows[0].status, "interrupted");
+    }
+
+    #[tokio::test]
+    async fn mark_downloading_revives_interrupted_rows() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "metube-id",
+            "https://www.youtube.com/watch?v=abc",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE submissions SET status='interrupted' WHERE id='metube-id'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        mark_downloading(&pool, "https://www.youtube.com/watch?v=abc")
+            .await
+            .unwrap();
+
+        let rows = list_submissions(&pool).await.unwrap();
+        assert_eq!(rows[0].status, "downloading");
+    }
+
+    #[tokio::test]
     async fn get_submitter_by_filename_returns_snapshot_fields() {
         let pool = test_pool().await;
         create_submission(
             &pool,
             "test-id-3",
             "https://example.com/video3",
+            None,
             None,
             false,
             None,
@@ -685,6 +905,7 @@ mod tests {
             "user-1-sub",
             "https://example.com/u1",
             None,
+            None,
             false,
             None,
             Some("key-1"),
@@ -698,6 +919,7 @@ mod tests {
             &pool,
             "user-2-sub",
             "https://example.com/u2",
+            None,
             None,
             false,
             None,
@@ -724,6 +946,7 @@ mod tests {
             "user-1-sub",
             "https://example.com/u1",
             None,
+            None,
             false,
             None,
             Some("key-1"),
@@ -737,6 +960,7 @@ mod tests {
             &pool,
             "user-2-sub",
             "https://example.com/u2",
+            None,
             None,
             false,
             None,

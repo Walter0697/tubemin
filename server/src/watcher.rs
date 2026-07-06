@@ -143,6 +143,10 @@ pub fn start(
                     crate::db::get_submitter_by_filename(pool.as_ref(), fname)
                         .await
                         .unwrap_or((None, None));
+                let source = crate::db::get_source_by_filename(pool.as_ref(), fname)
+                    .await
+                    .ok()
+                    .flatten();
                 match crate::peertube::upload(
                     &pt.url,
                     pt.host.as_deref(),
@@ -154,6 +158,7 @@ pub fn start(
                     thumb_arg,
                     submitter_display.as_deref(),
                     submitter_tag.as_deref(),
+                    source.as_deref(),
                 )
                 .await
                 {

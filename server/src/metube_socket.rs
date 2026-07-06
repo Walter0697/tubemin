@@ -78,6 +78,19 @@ async fn run(metube_url: &str, pool: &SqlitePool, progress: &ProgressMap) -> any
                         }
                         Some("completed") | Some("error") => {
                             if let Some(url) = arr.get(1).and_then(|d| d["url"].as_str()) {
+                                // Record the filename immediately so the watcher can
+                                // match the landed file to this submission exactly.
+                                if let Some(filename) = arr
+                                    .get(1)
+                                    .filter(|d| d["status"].as_str() == Some("finished"))
+                                    .and_then(|d| d["filename"].as_str())
+                                {
+                                    if let Err(e) =
+                                        crate::db::set_filename_by_url(pool, url, filename).await
+                                    {
+                                        warn!(error = %e, url, "db error recording filename");
+                                    }
+                                }
                                 if let Ok(Some(sub)) =
                                     crate::db::get_submission_by_url(pool, url).await
                                 {

@@ -89,7 +89,7 @@ Caddy obtains TLS certificates automatically. First startup takes ~2 minutes for
 
 ### 4. Generate an API key
 
-Open `https://tubemin.yourdomain.com/settings`, log in, and generate a key. You'll enter this in the extension settings.
+Open `https://tubemin.yourdomain.com/settings`, log in, and generate a key. You can set a label there, for example `extension` or `ios-shortcut`. You'll enter this in the extension or shortcut settings.
 
 ## Browser extension
 
@@ -179,7 +179,7 @@ Then fill in the four `OIDC_*` vars in `.env`.
 
 ## Pipeline details
 
-1. Extension POSTs the URL to `/api/submit` (requires API key).
+1. Extension POSTs the URL to `/api/submit` (requires API key). The body can include an optional `source` field such as `extension` or `ios-shortcut`.
 2. Tubemin validates the URL and forwards it to MeTube (or downloads directly via ffmpeg for raw stream URLs).
 3. MeTube downloads the video to the shared `/downloads` volume.
 4. Tubemin's file watcher detects the new file and triggers a PeerTube import via the API.

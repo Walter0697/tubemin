@@ -21,6 +21,7 @@ pub struct SubmitRequest {
     pub url: String,
     pub referer: Option<String>,
     pub source_url: Option<String>,
+    pub source: Option<String>,
     pub title: Option<String>,
     pub cookies: Option<String>,
     pub subtitle_tracks: Option<Vec<SubtitleTrack>>,
@@ -53,6 +54,13 @@ fn normalize_submitter_tag(value: &str) -> String {
     } else {
         out.to_string()
     }
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub async fn submit(
@@ -91,6 +99,8 @@ pub async fn submit(
     };
 
     let _ = api_keys::update_last_used(&state.pool, &verified_key.id).await;
+    let source =
+        normalize_optional_text(body.source.as_deref()).or_else(|| Some("extension".to_string()));
 
     if !crate::url_validator::is_supported_url(&body.url)
         && !crate::url_validator::is_direct_media_url(&body.url)
@@ -113,6 +123,7 @@ pub async fn submit(
         &state.pool,
         &body.url,
         Some(&verified_key.id),
+        source.as_deref(),
         verified_key.owner_sub.as_deref(),
         verified_key.owner_display.as_deref(),
         submitter_tag.as_deref(),
@@ -129,6 +140,7 @@ pub async fn submit(
             &id,
             &body.url,
             body.source_url.as_deref(),
+            source.as_deref(),
             is_direct,
             body.title.as_deref(),
             Some(&verified_key.id),
@@ -237,7 +249,7 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    async fn make_app() -> (TestServer, String, MockServer) {
+    async fn make_app() -> (TestServer, String, MockServer, Arc<sqlx::SqlitePool>) {
         let pool = Arc::new(db::init("sqlite::memory:").await.unwrap());
         let metube_mock = MockServer::start().await;
         Mock::given(method("POST"))
@@ -292,12 +304,12 @@ mod tests {
             .route("/api/submit", post(submit))
             .with_state(state);
 
-        (TestServer::new(app).unwrap(), api_key, metube_mock)
+        (TestServer::new(app).unwrap(), api_key, metube_mock, pool)
     }
 
     #[tokio::test]
     async fn valid_submission_returns_queued() {
-        let (server, api_key, _mock) = make_app().await;
+        let (server, api_key, _mock, _pool) = make_app().await;
         let resp = server
             .post("/api/submit")
             .add_header("X-API-Key", &api_key)
@@ -309,8 +321,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn missing_source_defaults_to_extension() {
+        let (server, api_key, _mock, pool) = make_app().await;
+        let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        let resp = server
+            .post("/api/submit")
+            .add_header("X-API-Key", &api_key)
+            .json(&json!({"url": url}))
+            .await;
+        resp.assert_status_ok();
+        let submission = db::get_submission_by_url(&pool, url)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(submission.source.as_deref(), Some("extension"));
+    }
+
+    #[tokio::test]
     async fn missing_api_key_returns_401() {
-        let (server, _, _mock) = make_app().await;
+        let (server, _, _mock, _) = make_app().await;
         let resp = server
             .post("/api/submit")
             .json(&json!({"url": "https://example.com/video"}))
@@ -320,7 +349,7 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_api_key_returns_401() {
-        let (server, _, _mock) = make_app().await;
+        let (server, _, _mock, _) = make_app().await;
         let resp = server
             .post("/api/submit")
             .add_header("X-API-Key", "wrong-key")

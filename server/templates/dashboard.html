@@ -19,6 +19,7 @@
         <button class="filter-tab active" data-status="all">All<span class="filter-count" id="count-all"></span></button>
         <button class="filter-tab" data-status="pending">Pending<span class="filter-count" id="count-pending"></span></button>
         <button class="filter-tab" data-status="downloading">Downloading<span class="filter-count" id="count-downloading"></span></button>
+        <button class="filter-tab" data-status="interrupted">Interrupted<span class="filter-count" id="count-interrupted"></span></button>
         <button class="filter-tab" data-status="transcoding">Transcoding<span class="filter-count" id="count-transcoding"></span></button>
         <button class="filter-tab" data-status="complete">Complete<span class="filter-count" id="count-complete"></span></button>
         <button class="filter-tab" data-status="imported">Imported<span class="filter-count" id="count-imported"></span></button>
@@ -118,9 +119,17 @@
         '</div>';
     }
 
+    function formatSourceLabel(source) {
+      return (source || '')
+        .replace(/[_-]+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, c => c.toUpperCase());
+    }
+
     // ── Card rendering ────────────────────────────────────────────────────────
 
     function buildCard(s) {
+      const source = s.source || 'extension';
       submissionMap.set(s.id, s);
       const card = document.createElement('a');
       card.className = 'card' + (isProcessing(s.status) ? ' processing' : '') + (selectMode ? ' select-mode' : '');
@@ -133,7 +142,9 @@
 
       card.innerHTML =
         '<input type="checkbox" class="card-checkbox" aria-label="Select">' +
-        '<div class="card-thumb"></div>' +
+        '<div class="card-thumb">' +
+          '<div class="card-source-badge">' + escHtml(formatSourceLabel(source)) + '</div>' +
+        '</div>' +
         '<div class="card-body">' +
           '<div class="card-site"></div>' +
           '<div class="card-title">' + (s.title ? escHtml(s.title) : '') + '</div>' +
@@ -282,9 +293,11 @@
 
       // Show source page if we have one, otherwise the submission URL is the real page (MeTube path)
       const pageLink = s.source_url || s.url;
-      addRow('Source',
+      addRow('Source page',
         '<a href="' + escHtml(pageLink) + '" target="_blank" rel="noopener">' +
           escHtml(pageLink) + ' ↗</a>');
+
+      addRow('Client', escHtml(s.source || 'extension'));
 
       addRow('Submitted', relTime(s.submitted_at) + ' <span style="color:var(--text-dim)">(' + new Date(s.submitted_at).toLocaleString() + ')</span>');
 
@@ -362,6 +375,17 @@
       if (siteEl) siteEl.textContent = siteHost(s.url);
 
       const peertubePath = s.peertube_thumb || card.dataset.thumb;
+      const badgeText = formatSourceLabel(s.source || 'extension');
+      const renderBadge = () => {
+        let badge = card.querySelector('.card-source-badge');
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.className = 'card-source-badge';
+          thumb.appendChild(badge);
+        }
+        badge.textContent = badgeText;
+        badge.hidden = false;
+      };
       if (peertubePath && PEERTUBE_BASE) {
         const img = document.createElement('img');
         img.alt = '';
@@ -369,6 +393,7 @@
         img.src = PEERTUBE_BASE + peertubePath;
         thumb.innerHTML = '';
         thumb.appendChild(img);
+        renderBadge();
       } else {
         const id = ytId(s.url);
         if (id) {
@@ -378,8 +403,10 @@
           img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
           thumb.innerHTML = '';
           thumb.appendChild(img);
+          renderBadge();
         } else {
           setPlaceholder(thumb, s.url);
+          renderBadge();
         }
       }
     }
@@ -428,6 +455,11 @@
         card.dataset.thumb = s.peertube_thumb;
         hydrateCard(card, s);
       }
+      const badge = card.querySelector('.card-source-badge');
+      if (badge) {
+        badge.textContent = formatSourceLabel(s.source || 'extension');
+        badge.hidden = false;
+      }
       submissionMap.set(s.id, s);
     }
 
@@ -461,7 +493,7 @@
       currentTotal = data.total;
 
       // Update filter counts
-      const tabs = ['all', 'pending', 'downloading', 'transcoding', 'complete', 'imported', 'error'];
+      const tabs = ['all', 'pending', 'downloading', 'interrupted', 'transcoding', 'complete', 'imported', 'error'];
       tabs.forEach(s => {
         const el = document.getElementById('count-' + s);
         if (el) el.textContent = data.counts[s] ? ' ' + data.counts[s] : '';

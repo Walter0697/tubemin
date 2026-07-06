@@ -72,6 +72,16 @@ pub fn start(
                         }
                     }
 
+                    // Record MeTube's reported filenames so the watcher can match
+                    // landed files to submissions exactly instead of guessing.
+                    for item in &state.finished {
+                        if let Err(e) =
+                            crate::db::set_filename_by_url(&pool, &item.url, &item.filename).await
+                        {
+                            error!(error = %e, url = %item.url, "db error recording filename");
+                        }
+                    }
+
                     // Also keep progress entries for in-flight direct downloads (not in MeTube queue)
                     match sqlx::query_as::<_, (String,)>(
                         "SELECT id FROM submissions WHERE status IN ('pending', 'downloading') AND is_direct = 1"

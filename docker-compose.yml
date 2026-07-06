@@ -30,7 +30,8 @@ services:
       peertube:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      # 127.0.0.1, not localhost: busybox wget prefers ::1 but the app binds IPv4 only
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -43,7 +44,8 @@ services:
       - ./data/downloads:/downloads
     environment:
       DOWNLOAD_DIR: /downloads
-      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true, "writesubtitles": true, "writeautomaticsub": true}'
+      # Keep downloads simple: subtitles/auto-captions can trigger 429s on some YouTube videos.
+      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true}'
 
   peertube:
     image: chocobozzz/peertube:production-bookworm

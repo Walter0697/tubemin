@@ -50,9 +50,12 @@ pub async fn dashboard(
         peertube_base => peertube_base,
         username => user.display_name(),
         active_page => "dashboard",
+        app_version => env!("CARGO_PKG_VERSION"),
         submissions => submissions.iter().map(|s| minijinja::context! {
             url => s.url,
             title => s.title,
+            source_url => s.source_url,
+            source => s.source.as_deref().unwrap_or("extension"),
             peertube_thumb => s.peertube_thumb,
             status => s.status,
             submitted_at => s.submitted_at,
@@ -77,9 +80,11 @@ mod tests {
                 peertube_base => "",
                 username => "admin",
                 active_page => "dashboard",
+                app_version => env!("CARGO_PKG_VERSION"),
             })
             .unwrap();
         assert!(html.contains(r#"<span class="nav-user">admin</span>"#));
         assert!(html.contains(r#"class="nav-link active""#));
+        assert!(html.contains(env!("CARGO_PKG_VERSION")));
     }
 }

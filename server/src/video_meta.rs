@@ -28,7 +28,7 @@ pub fn load_for(video_path: &Path) -> VideoMeta {
     serde_json::from_str(&data).unwrap_or_default()
 }
 
-pub fn format_description(meta: &VideoMeta) -> String {
+pub fn format_description(meta: &VideoMeta, source: Option<&str>) -> String {
     let mut parts: Vec<String> = Vec::new();
     if let Some(uploader) = &meta.uploader {
         parts.push(format!("Originally uploaded by: {}", uploader));
@@ -37,6 +37,9 @@ pub fn format_description(meta: &VideoMeta) -> String {
         if !desc.is_empty() {
             parts.push(desc.clone());
         }
+    }
+    if let Some(source) = source.map(str::trim).filter(|s| !s.is_empty()) {
+        parts.push(format!("Submitted via: {}", source));
     }
     parts.join("\n\n")
 }
@@ -76,9 +79,10 @@ mod tests {
             description: Some("Cool video".into()),
             ..Default::default()
         };
-        let desc = format_description(&meta);
+        let desc = format_description(&meta, Some("extension"));
         assert!(desc.contains("Originally uploaded by: MyChan"));
         assert!(desc.contains("Cool video"));
+        assert!(desc.contains("Submitted via: extension"));
     }
 
     #[test]
@@ -87,7 +91,7 @@ mod tests {
             description: Some("Just a description".into()),
             ..Default::default()
         };
-        let desc = format_description(&meta);
+        let desc = format_description(&meta, None);
         assert_eq!(desc, "Just a description");
     }
 
