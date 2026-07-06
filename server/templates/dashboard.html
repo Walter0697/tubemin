@@ -19,6 +19,7 @@
         <button class="filter-tab active" data-status="all">All<span class="filter-count" id="count-all"></span></button>
         <button class="filter-tab" data-status="pending">Pending<span class="filter-count" id="count-pending"></span></button>
         <button class="filter-tab" data-status="downloading">Downloading<span class="filter-count" id="count-downloading"></span></button>
+        <button class="filter-tab" data-status="interrupted">Interrupted<span class="filter-count" id="count-interrupted"></span></button>
         <button class="filter-tab" data-status="transcoding">Transcoding<span class="filter-count" id="count-transcoding"></span></button>
         <button class="filter-tab" data-status="complete">Complete<span class="filter-count" id="count-complete"></span></button>
         <button class="filter-tab" data-status="imported">Imported<span class="filter-count" id="count-imported"></span></button>
@@ -492,7 +493,7 @@
       currentTotal = data.total;
 
       // Update filter counts
-      const tabs = ['all', 'pending', 'downloading', 'transcoding', 'complete', 'imported', 'error'];
+      const tabs = ['all', 'pending', 'downloading', 'interrupted', 'transcoding', 'complete', 'imported', 'error'];
       tabs.forEach(s => {
         const el = document.getElementById('count-' + s);
         if (el) el.textContent = data.counts[s] ? ' ' + data.counts[s] : '';

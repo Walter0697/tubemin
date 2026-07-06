@@ -217,6 +217,7 @@ input::placeholder { color: var(--text-dim); }
 }
 .status-imported { background: var(--status-ok);  box-shadow: 0 0 6px #4ade8066; }
 .status-pending  { background: var(--text-dim); }
+.status-interrupted { background: #7c7c7c; box-shadow: 0 0 6px #7c7c7c66; }
 .status-error    { background: var(--status-err); box-shadow: 0 0 6px #e85d4a66; }
 .status-downloading { background: #60a5fa; box-shadow: 0 0 6px #60a5fa66; animation: pulse-blue 1.4s ease-in-out infinite; }
 .status-transcoding  { background: var(--status-warn); box-shadow: 0 0 6px #e8884a66; animation: pulse-amber 1.4s ease-in-out infinite; }

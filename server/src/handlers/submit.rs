@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_api_key_returns_401() {
-        let (server, _, _mock) = make_app().await;
+        let (server, _, _mock, _) = make_app().await;
         let resp = server
             .post("/api/submit")
             .json(&json!({"url": "https://example.com/video"}))
@@ -349,7 +349,7 @@ mod tests {
 
     #[tokio::test]
     async fn wrong_api_key_returns_401() {
-        let (server, _, _mock) = make_app().await;
+        let (server, _, _mock, _) = make_app().await;
         let resp = server
             .post("/api/submit")
             .add_header("X-API-Key", "wrong-key")
