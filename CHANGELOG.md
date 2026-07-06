@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.0](https://github.com/Walter0697/tubemin/compare/v0.8.0...v0.9.0) (2026-07-06)
+
+
+### Features
+
+* add PeerTube orphan cleanup page for unsynced videos ([#20](https://github.com/Walter0697/tubemin/issues/20)) ([8320857](https://github.com/Walter0697/tubemin/commit/8320857f7c5f48a23bd4e5f90968d87042d1148c))
+* add submission source tracking and key labels ([#18](https://github.com/Walter0697/tubemin/issues/18)) ([6c264eb](https://github.com/Walter0697/tubemin/commit/6c264eb9f5083f21acf8e9155110a664a0c5fcd5))
+
 ## [0.8.0](https://github.com/Walter0697/tubemin/compare/v0.7.0...v0.8.0) (2026-07-04)
 
 
