@@ -80,7 +80,7 @@ pub async fn list_submissions(
                         id: s.id,
                         url: s.url,
                         source_url: s.source_url,
-                        source: s.source,
+                        source: Some(s.source.unwrap_or_else(|| "extension".into())),
                         title: s.title,
                         filename: s.filename,
                         peertube_thumb: s.peertube_thumb,

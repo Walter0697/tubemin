@@ -437,6 +437,26 @@ a.card:hover {
   object-fit: cover;
   display: block;
 }
+.card-source-badge {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  max-width: calc(100% - 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
 .card-thumb-placeholder {
   display: flex;
   flex-direction: column;

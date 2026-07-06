@@ -304,6 +304,18 @@ pub async fn get_submitter_by_filename(
     Ok(row.unwrap_or((None, None)))
 }
 
+pub async fn get_source_by_filename(
+    pool: &SqlitePool,
+    filename: &str,
+) -> Result<Option<String>, sqlx::Error> {
+    let row: Option<(Option<String>,)> =
+        sqlx::query_as("SELECT source FROM submissions WHERE filename = ? LIMIT 1")
+            .bind(filename)
+            .fetch_optional(pool)
+            .await?;
+    Ok(row.and_then(|(source,)| source))
+}
+
 pub async fn get_submission_by_url(
     pool: &SqlitePool,
     url: &str,

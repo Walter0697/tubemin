@@ -11,6 +11,41 @@ fn submitter_tags(submitter_tag: Option<&str>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn normalize_tag_value(value: &str) -> Option<String> {
+    let mut out = String::with_capacity(value.len());
+    let mut last_dash = false;
+    for ch in value.chars() {
+        let mapped = if ch.is_ascii_alphanumeric() {
+            last_dash = false;
+            ch.to_ascii_lowercase()
+        } else {
+            if last_dash {
+                continue;
+            }
+            last_dash = true;
+            '-'
+        };
+        out.push(mapped);
+    }
+    let out = out.trim_matches('-');
+    if out.is_empty() {
+        None
+    } else {
+        Some(out.to_string())
+    }
+}
+
+fn metadata_tags(meta: &crate::video_meta::VideoMeta, source: Option<&str>) -> Vec<String> {
+    let mut tags = Vec::new();
+    if let Some(source) = source.and_then(normalize_tag_value) {
+        tags.push(format!("source:{source}"));
+    }
+    if let Some(uploader) = meta.uploader.as_deref().and_then(normalize_tag_value) {
+        tags.push(format!("original-uploader:{uploader}"));
+    }
+    tags
+}
+
 #[derive(Deserialize)]
 struct OAuthClient {
     client_id: String,
@@ -504,6 +539,7 @@ pub async fn upload(
     thumbnail: Option<(Vec<u8>, &str)>,
     _submitter_display: Option<&str>,
     submitter_tag: Option<&str>,
+    source: Option<&str>,
 ) -> Result<(String, String)> {
     // PeerTube validates Host against PEERTUBE_WEBSERVER_HOSTNAME (its public hostname).
     // When Tubemin connects via Docker-internal URL (peertube:9000) we must send the
@@ -586,7 +622,7 @@ pub async fn upload(
         .file_name(filename)
         .mime_str(mime)?;
 
-    let description = crate::video_meta::format_description(meta);
+    let description = crate::video_meta::format_description(meta, source);
 
     let mut form = reqwest::multipart::Form::new()
         .text("name", title)
@@ -602,6 +638,9 @@ pub async fn upload(
         .and_then(crate::video_meta::upload_date_to_iso)
     {
         form = form.text("originallyPublishedAt", iso);
+    }
+    for tag in metadata_tags(meta, source) {
+        form = form.text("tags[]", tag);
     }
     for tag in submitter_tags(submitter_tag) {
         form = form.text("tags[]", tag);

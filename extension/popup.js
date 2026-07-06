@@ -298,6 +298,7 @@ async function handleListQueue() {
           url: item.videoUrl,
           referer: item.pageUrl || null,
           source_url: item.sourceUrl || null,
+          source: 'extension',
           title: item.title || null,
           cookies: item.cookies || null,
           subtitle_tracks: item.subtitleTracks || null,
@@ -340,7 +341,7 @@ async function handleUrlQueue() {
     const resp = await fetch(`${serverUrl}/api/submit`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify({ url: currentUrl }),
+      body: JSON.stringify({ url: currentUrl, source: 'extension' }),
     });
 
     if (resp.ok) {

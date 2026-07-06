@@ -99,7 +99,8 @@ pub async fn submit(
     };
 
     let _ = api_keys::update_last_used(&state.pool, &verified_key.id).await;
-    let source = normalize_optional_text(body.source.as_deref());
+    let source =
+        normalize_optional_text(body.source.as_deref()).or_else(|| Some("extension".to_string()));
 
     if !crate::url_validator::is_supported_url(&body.url)
         && !crate::url_validator::is_direct_media_url(&body.url)
@@ -248,7 +249,7 @@ mod tests {
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    async fn make_app() -> (TestServer, String, MockServer) {
+    async fn make_app() -> (TestServer, String, MockServer, Arc<sqlx::SqlitePool>) {
         let pool = Arc::new(db::init("sqlite::memory:").await.unwrap());
         let metube_mock = MockServer::start().await;
         Mock::given(method("POST"))
@@ -303,20 +304,37 @@ mod tests {
             .route("/api/submit", post(submit))
             .with_state(state);
 
-        (TestServer::new(app).unwrap(), api_key, metube_mock)
+        (TestServer::new(app).unwrap(), api_key, metube_mock, pool)
     }
 
     #[tokio::test]
     async fn valid_submission_returns_queued() {
-        let (server, api_key, _mock) = make_app().await;
+        let (server, api_key, _mock, _pool) = make_app().await;
         let resp = server
             .post("/api/submit")
             .add_header("X-API-Key", &api_key)
-            .json(&json!({"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "source": "extension"}))
+            .json(&json!({"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}))
             .await;
         resp.assert_status_ok();
         let body: serde_json::Value = resp.json();
         assert_eq!(body["status"], "queued");
+    }
+
+    #[tokio::test]
+    async fn missing_source_defaults_to_extension() {
+        let (server, api_key, _mock, pool) = make_app().await;
+        let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        let resp = server
+            .post("/api/submit")
+            .add_header("X-API-Key", &api_key)
+            .json(&json!({"url": url}))
+            .await;
+        resp.assert_status_ok();
+        let submission = db::get_submission_by_url(&pool, url)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(submission.source.as_deref(), Some("extension"));
     }
 
     #[tokio::test]

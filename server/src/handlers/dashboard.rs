@@ -55,7 +55,7 @@ pub async fn dashboard(
             url => s.url,
             title => s.title,
             source_url => s.source_url,
-            source => s.source,
+            source => s.source.as_deref().unwrap_or("extension"),
             peertube_thumb => s.peertube_thumb,
             status => s.status,
             submitted_at => s.submitted_at,

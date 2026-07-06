@@ -118,9 +118,17 @@
         '</div>';
     }
 
+    function formatSourceLabel(source) {
+      return (source || '')
+        .replace(/[_-]+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, c => c.toUpperCase());
+    }
+
     // ── Card rendering ────────────────────────────────────────────────────────
 
     function buildCard(s) {
+      const source = s.source || 'extension';
       submissionMap.set(s.id, s);
       const card = document.createElement('a');
       card.className = 'card' + (isProcessing(s.status) ? ' processing' : '') + (selectMode ? ' select-mode' : '');
@@ -133,7 +141,9 @@
 
       card.innerHTML =
         '<input type="checkbox" class="card-checkbox" aria-label="Select">' +
-        '<div class="card-thumb"></div>' +
+        '<div class="card-thumb">' +
+          '<div class="card-source-badge">' + escHtml(formatSourceLabel(source)) + '</div>' +
+        '</div>' +
         '<div class="card-body">' +
           '<div class="card-site"></div>' +
           '<div class="card-title">' + (s.title ? escHtml(s.title) : '') + '</div>' +
@@ -286,9 +296,7 @@
         '<a href="' + escHtml(pageLink) + '" target="_blank" rel="noopener">' +
           escHtml(pageLink) + ' ↗</a>');
 
-      if (s.source) {
-        addRow('Client', escHtml(s.source));
-      }
+      addRow('Client', escHtml(s.source || 'extension'));
 
       addRow('Submitted', relTime(s.submitted_at) + ' <span style="color:var(--text-dim)">(' + new Date(s.submitted_at).toLocaleString() + ')</span>');
 
@@ -366,6 +374,17 @@
       if (siteEl) siteEl.textContent = siteHost(s.url);
 
       const peertubePath = s.peertube_thumb || card.dataset.thumb;
+      const badgeText = formatSourceLabel(s.source || 'extension');
+      const renderBadge = () => {
+        let badge = card.querySelector('.card-source-badge');
+        if (!badge) {
+          badge = document.createElement('div');
+          badge.className = 'card-source-badge';
+          thumb.appendChild(badge);
+        }
+        badge.textContent = badgeText;
+        badge.hidden = false;
+      };
       if (peertubePath && PEERTUBE_BASE) {
         const img = document.createElement('img');
         img.alt = '';
@@ -373,6 +392,7 @@
         img.src = PEERTUBE_BASE + peertubePath;
         thumb.innerHTML = '';
         thumb.appendChild(img);
+        renderBadge();
       } else {
         const id = ytId(s.url);
         if (id) {
@@ -382,8 +402,10 @@
           img.src = 'https://img.youtube.com/vi/' + id + '/mqdefault.jpg';
           thumb.innerHTML = '';
           thumb.appendChild(img);
+          renderBadge();
         } else {
           setPlaceholder(thumb, s.url);
+          renderBadge();
         }
       }
     }
@@ -431,6 +453,11 @@
       if (s.peertube_thumb && !card.dataset.thumb) {
         card.dataset.thumb = s.peertube_thumb;
         hydrateCard(card, s);
+      }
+      const badge = card.querySelector('.card-source-badge');
+      if (badge) {
+        badge.textContent = formatSourceLabel(s.source || 'extension');
+        badge.hidden = false;
       }
       submissionMap.set(s.id, s);
     }
