@@ -14,12 +14,20 @@ pub struct NewKeyQuery {
 #[derive(Deserialize)]
 pub struct CsrfForm {
     pub csrf_token: String,
+    pub label: Option<String>,
 }
 
 const CSRF_SESSION_KEY: &str = "settings_csrf";
 
 fn generate_csrf_token() -> String {
     uuid::Uuid::new_v4().to_string()
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub async fn settings(
@@ -81,9 +89,10 @@ pub async fn generate_key(
     if stored.as_deref() != Some(&form.csrf_token) {
         return Redirect::to("/settings");
     }
+    let label = normalize_optional_text(form.label.as_deref());
     match api_keys::generate(
         &state.pool,
-        Some("web-generated"),
+        label.as_deref().or(Some("web-generated")),
         api_keys::ApiKeyOwner {
             sub: user.stable_subject(),
             display: user.display_name(),

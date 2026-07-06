@@ -21,6 +21,7 @@ pub struct SubmitRequest {
     pub url: String,
     pub referer: Option<String>,
     pub source_url: Option<String>,
+    pub source: Option<String>,
     pub title: Option<String>,
     pub cookies: Option<String>,
     pub subtitle_tracks: Option<Vec<SubtitleTrack>>,
@@ -53,6 +54,13 @@ fn normalize_submitter_tag(value: &str) -> String {
     } else {
         out.to_string()
     }
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub async fn submit(
@@ -91,6 +99,7 @@ pub async fn submit(
     };
 
     let _ = api_keys::update_last_used(&state.pool, &verified_key.id).await;
+    let source = normalize_optional_text(body.source.as_deref());
 
     if !crate::url_validator::is_supported_url(&body.url)
         && !crate::url_validator::is_direct_media_url(&body.url)
@@ -113,6 +122,7 @@ pub async fn submit(
         &state.pool,
         &body.url,
         Some(&verified_key.id),
+        source.as_deref(),
         verified_key.owner_sub.as_deref(),
         verified_key.owner_display.as_deref(),
         submitter_tag.as_deref(),
@@ -129,6 +139,7 @@ pub async fn submit(
             &id,
             &body.url,
             body.source_url.as_deref(),
+            source.as_deref(),
             is_direct,
             body.title.as_deref(),
             Some(&verified_key.id),
@@ -301,7 +312,7 @@ mod tests {
         let resp = server
             .post("/api/submit")
             .add_header("X-API-Key", &api_key)
-            .json(&json!({"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}))
+            .json(&json!({"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "source": "extension"}))
             .await;
         resp.assert_status_ok();
         let body: serde_json::Value = resp.json();

@@ -282,9 +282,13 @@
 
       // Show source page if we have one, otherwise the submission URL is the real page (MeTube path)
       const pageLink = s.source_url || s.url;
-      addRow('Source',
+      addRow('Source page',
         '<a href="' + escHtml(pageLink) + '" target="_blank" rel="noopener">' +
           escHtml(pageLink) + ' ↗</a>');
+
+      if (s.source) {
+        addRow('Client', escHtml(s.source));
+      }
 
       addRow('Submitted', relTime(s.submitted_at) + ' <span style="color:var(--text-dim)">(' + new Date(s.submitted_at).toLocaleString() + ')</span>');
 

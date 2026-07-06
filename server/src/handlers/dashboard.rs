@@ -53,6 +53,8 @@ pub async fn dashboard(
         submissions => submissions.iter().map(|s| minijinja::context! {
             url => s.url,
             title => s.title,
+            source_url => s.source_url,
+            source => s.source,
             peertube_thumb => s.peertube_thumb,
             status => s.status,
             submitted_at => s.submitted_at,

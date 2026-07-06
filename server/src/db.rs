@@ -7,6 +7,7 @@ pub struct Submission {
     pub id: String,
     pub url: String,
     pub source_url: Option<String>,
+    pub source: Option<String>,
     pub title: Option<String>,
     pub filename: Option<String>,
     pub peertube_thumb: Option<String>,
@@ -33,6 +34,7 @@ pub async fn create_submission(
     id: &str,
     url: &str,
     source_url: Option<&str>,
+    source: Option<&str>,
     is_direct: bool,
     title: Option<&str>,
     api_key_id: Option<&str>,
@@ -42,11 +44,12 @@ pub async fn create_submission(
 ) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "INSERT INTO submissions (id, url, source_url, title, status, is_direct, api_key_id, submitter_sub, submitter_display, submitter_tag, submitted_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO submissions (id, url, source_url, source, title, status, is_direct, api_key_id, submitter_sub, submitter_display, submitter_tag, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(id)
     .bind(url)
     .bind(source_url)
+    .bind(source)
     .bind(title)
     .bind(is_direct)
     .bind(api_key_id)
@@ -318,15 +321,17 @@ pub async fn reset_submission_to_pending(
     pool: &SqlitePool,
     url: &str,
     api_key_id: Option<&str>,
+    source: Option<&str>,
     submitter_sub: Option<&str>,
     submitter_display: Option<&str>,
     submitter_tag: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     let result = sqlx::query(
-        "UPDATE submissions SET status = 'pending', filename = NULL, api_key_id = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status = 'error'"
+        "UPDATE submissions SET status = 'pending', filename = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status = 'error'"
     )
     .bind(api_key_id)
+    .bind(source)
     .bind(submitter_sub)
     .bind(submitter_display)
     .bind(submitter_tag)
@@ -507,6 +512,7 @@ mod tests {
             "test-id",
             "https://example.com/video",
             None,
+            None,
             false,
             None,
             None,
@@ -528,6 +534,7 @@ mod tests {
             &pool,
             "test-id-2",
             "https://example.com/video2",
+            None,
             None,
             false,
             None,
@@ -551,6 +558,7 @@ mod tests {
             &pool,
             "t1",
             "https://example.com/v",
+            None,
             None,
             false,
             None,
@@ -581,6 +589,7 @@ mod tests {
             "t2",
             "https://example.com/v2",
             None,
+            None,
             false,
             None,
             None,
@@ -610,6 +619,7 @@ mod tests {
             "direct-id",
             "https://cdn.example.com/video.m3u8",
             None,
+            None,
             true,
             None,
             None,
@@ -623,6 +633,7 @@ mod tests {
             &pool,
             "metube-id",
             "https://www.youtube.com/watch?v=abc",
+            None,
             None,
             false,
             None,
@@ -660,6 +671,7 @@ mod tests {
             "test-id-3",
             "https://example.com/video3",
             None,
+            None,
             false,
             None,
             Some("key-1"),
@@ -685,6 +697,7 @@ mod tests {
             "user-1-sub",
             "https://example.com/u1",
             None,
+            None,
             false,
             None,
             Some("key-1"),
@@ -698,6 +711,7 @@ mod tests {
             &pool,
             "user-2-sub",
             "https://example.com/u2",
+            None,
             None,
             false,
             None,
@@ -724,6 +738,7 @@ mod tests {
             "user-1-sub",
             "https://example.com/u1",
             None,
+            None,
             false,
             None,
             Some("key-1"),
@@ -737,6 +752,7 @@ mod tests {
             &pool,
             "user-2-sub",
             "https://example.com/u2",
+            None,
             None,
             false,
             None,
