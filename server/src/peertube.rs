@@ -7,8 +7,20 @@ use tokio_util::io::ReaderStream;
 fn submitter_tags(submitter_tag: Option<&str>) -> Vec<String> {
     submitter_tag
         .filter(|tag| !tag.is_empty())
-        .map(|tag| vec![format!("submitter:{tag}")])
+        .and_then(|tag| clamp_tag(format!("submitter:{tag}")))
+        .map(|tag| vec![tag])
         .unwrap_or_default()
+}
+
+// PeerTube rejects uploads whose tags fall outside 2..=30 chars.
+fn clamp_tag(tag: String) -> Option<String> {
+    let clamped: String = tag.chars().take(30).collect();
+    let clamped = clamped.trim_end_matches('-');
+    if clamped.chars().count() < 2 {
+        None
+    } else {
+        Some(clamped.to_string())
+    }
 }
 
 fn normalize_tag_value(value: &str) -> Option<String> {
@@ -37,13 +49,71 @@ fn normalize_tag_value(value: &str) -> Option<String> {
 
 fn metadata_tags(meta: &crate::video_meta::VideoMeta, source: Option<&str>) -> Vec<String> {
     let mut tags = Vec::new();
-    if let Some(source) = source.and_then(normalize_tag_value) {
-        tags.push(format!("source:{source}"));
+    if let Some(tag) = source
+        .and_then(normalize_tag_value)
+        .and_then(|s| clamp_tag(format!("source:{s}")))
+    {
+        tags.push(tag);
     }
-    if let Some(uploader) = meta.uploader.as_deref().and_then(normalize_tag_value) {
-        tags.push(format!("original-uploader:{uploader}"));
+    if let Some(tag) = meta
+        .uploader
+        .as_deref()
+        .and_then(normalize_tag_value)
+        .and_then(|u| clamp_tag(format!("original-uploader:{u}")))
+    {
+        tags.push(tag);
     }
     tags
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta_with_uploader(uploader: &str) -> crate::video_meta::VideoMeta {
+        crate::video_meta::VideoMeta {
+            title: None,
+            description: None,
+            uploader: Some(uploader.to_string()),
+            upload_date: None,
+        }
+    }
+
+    // PeerTube rejects the whole upload if any tag exceeds 30 chars.
+    #[test]
+    fn metadata_tags_fit_peertube_limit() {
+        let tags = metadata_tags(&meta_with_uploader("Marvel Entertainment"), Some("extension"));
+        for tag in &tags {
+            assert!(
+                (2..=30).contains(&tag.chars().count()),
+                "tag out of 2..=30 range: {tag:?}"
+            );
+        }
+        assert_eq!(tags[0], "source:extension");
+        assert!(tags[1].starts_with("original-uploader:"));
+    }
+
+    #[test]
+    fn clamped_tag_has_no_trailing_dash() {
+        // normalized uploader "abcdefghijk-lmnop" truncates at a '-' boundary
+        let tags = metadata_tags(&meta_with_uploader("abcdefghijk lmnop"), None);
+        assert!(!tags[0].ends_with('-'), "trailing dash in {:?}", tags[0]);
+        assert!(tags[0].chars().count() <= 30);
+    }
+
+    #[test]
+    fn short_tags_unchanged() {
+        let tags = metadata_tags(&meta_with_uploader("PewDiePie"), Some("api"));
+        assert_eq!(tags, vec!["source:api", "original-uploader:pewdiepie"]);
+    }
+
+    #[test]
+    fn submitter_tag_fits_peertube_limit() {
+        let tags = submitter_tags(Some("a-very-long-submitter-name-that-overflows"));
+        assert_eq!(tags.len(), 1);
+        assert!((2..=30).contains(&tags[0].chars().count()));
+        assert!(tags[0].starts_with("submitter:"));
+    }
 }
 
 #[derive(Deserialize)]
