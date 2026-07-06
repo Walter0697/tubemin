@@ -13,6 +13,7 @@ const videoListHeader  = document.getElementById('video-list-header');
 const videoList        = document.getElementById('video-list');
 const selectAllBtn     = document.getElementById('select-all-btn');
 const unselectAllBtn   = document.getElementById('unselect-all-btn');
+const popupVersion     = document.getElementById('popup-version');
 
 let currentUrl      = '';
 let serverUrl       = '';
@@ -22,10 +23,12 @@ let currentHostname = '';
 let minDurationSec  = 0;
 let capturedVideos  = [];
 let onSend          = handleUrlQueue;
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
 
 const STALE_MS = 20 * 60 * 1000;
 
 settingsLink.addEventListener('click', () => chrome.runtime.openOptionsPage());
+if (popupVersion) popupVersion.textContent = `v${EXTENSION_VERSION}`;
 
 function setAllChecked(val) {
   videoList.querySelectorAll('input[type="checkbox"]').forEach(cb => { cb.checked = val; });

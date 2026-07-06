@@ -10,6 +10,10 @@ const changeBtn = document.getElementById('change-btn');
 const saveBtn = document.getElementById('save-btn');
 const testBtn = document.getElementById('test-btn');
 const status = document.getElementById('settings-status');
+const versionEl = document.getElementById('settings-version');
+const EXTENSION_VERSION = chrome.runtime.getManifest().version;
+
+if (versionEl) versionEl.textContent = `v${EXTENSION_VERSION}`;
 
 function maskKey(key) {
   if (!key || key.length <= 4) return '••••';

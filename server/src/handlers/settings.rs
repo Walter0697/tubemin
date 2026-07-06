@@ -61,6 +61,7 @@ pub async fn settings(
     let ctx = minijinja::context! {
         username => user.display_name(),
         active_page => "settings",
+        app_version => env!("CARGO_PKG_VERSION"),
         new_key => query.new_key,
         csrf_token => csrf_token,
         api_keys => keys.iter().map(|k| minijinja::context! {

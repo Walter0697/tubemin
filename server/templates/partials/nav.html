@@ -1,8 +1,14 @@
 <nav>
-  <span class="nav-logo"><img src="/static/favicon.png" class="nav-icon" alt="">TUBEMIN</span>
-  <a href="/dashboard" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
-  <a href="/settings" class="nav-link{% if active_page == 'settings' %} active{% endif %}">Settings</a>
-  <span class="nav-spacer"></span>
-  <span class="nav-user">{{ username }}</span>
-  <a href="/auth/logout" class="nav-link nav-logout">Logout</a>
+  <div class="nav-top-row">
+    <span class="nav-logo"><img src="/static/favicon.png" class="nav-icon" alt="">TUBEMIN</span>
+    <span class="nav-version">v{{ app_version }}</span>
+  </div>
+  <div class="nav-main-row">
+    <a href="/dashboard" class="nav-link{% if active_page == 'dashboard' %} active{% endif %}">Dashboard</a>
+    <a href="/settings" class="nav-link{% if active_page == 'settings' %} active{% endif %}">Settings</a>
+  </div>
+  <div class="nav-account">
+    <span class="nav-user">{{ username }}</span>
+    <a href="/auth/logout" class="nav-link nav-logout">Logout</a>
+  </div>
 </nav>

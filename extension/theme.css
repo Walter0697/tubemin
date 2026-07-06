@@ -295,6 +295,15 @@ input::placeholder { color: var(--text-dim); }
 #settings-status.ok  { color: var(--status-ok); }
 #settings-status.err { color: var(--status-err); }
 
+.app-version {
+  margin-top: 14px;
+  font-size: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-align: right;
+}
+
 /* ── Server offline state ───────────────────────── */
 body.server-offline .popup-content {
   opacity: 0.45;
