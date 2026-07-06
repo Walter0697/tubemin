@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/Walter0697/tubemin/compare/v0.9.0...v0.9.1) (2026-07-06)
+
+
+### Bug Fixes
+
+* use correct GitHub clone URL in README ([ed34431](https://github.com/Walter0697/tubemin/commit/ed34431b34bd317f02ceb9f92d438e8a990243c5))
+
 ## [0.9.0](https://github.com/Walter0697/tubemin/compare/v0.8.0...v0.9.0) (2026-07-06)
 
 
