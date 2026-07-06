@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tubemin — Cleanup</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+  {% include "nav" %}
+  <div class="page">
+    <div class="dashboard-header">
+      <h1 class="page-title">PeerTube Cleanup</h1>
+    </div>
+
+    {% if not peertube_enabled %}
+    <p class="empty-msg">PeerTube upload is not configured on this server.</p>
+    {% else %}
+    <p class="cleanup-intro">
+      Videos here live on PeerTube under your submitter tag
+      <code>submitter:{{ submitter_tag }}</code>
+      but are not tracked in the Tubemin dashboard — for example after a database reset.
+      You can delete them here without a dashboard entry.
+    </p>
+
+    <div class="bulk-toolbar" id="bulk-toolbar" hidden>
+      <span class="bulk-count" id="bulk-count">0 selected</span>
+      <button class="btn-secondary" id="bulk-select-all-btn">Select all</button>
+      <button class="btn-danger" id="bulk-delete-btn">Delete selected</button>
+      <button class="btn-secondary" id="bulk-cancel-btn">Cancel</button>
+    </div>
+
+    <div class="card-grid" id="card-grid">
+      <p class="empty-msg" id="loading-msg">Loading…</p>
+      <p class="empty-msg" id="empty-msg" hidden>No orphaned videos found.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="modal-overlay" id="confirm-modal" hidden>
+    <div class="modal-box">
+      <p class="modal-msg" id="modal-msg"></p>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="modal-cancel-btn">Cancel</button>
+        <button class="btn-danger" id="modal-confirm-btn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  {% if peertube_enabled %}
+  <script src="/static/app.js"></script>
+  <script>
+    const PEERTUBE_BASE = "{{ peertube_base | safe }}";
+
+    let selectMode = false;
+    const cardMap = new Map();
+    const selectedIds = new Set();
+
+    function escHtml(s) {
+      return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function relTime(ts) {
+      if (!ts) return '';
+      const s = (Date.now() - new Date(ts)) / 1000;
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
+    }
+
+    function thumbPath(video) {
+      return video.thumbnailPath || video.previewPath || null;
+    }
+
+    function setPlaceholder(thumbEl) {
+      thumbEl.innerHTML =
+        '<div class="card-thumb-placeholder">' +
+          '<span class="ph-icon">▶</span>' +
+          '<span class="ph-site">PeerTube</span>' +
+        '</div>' +
+        '<div class="card-source-badge">Orphan</div>';
+    }
+
+    function hydrateThumb(card, video) {
+      const thumb = card.querySelector('.card-thumb');
+      const path = thumbPath(video);
+      const badge = document.createElement('div');
+      badge.className = 'card-source-badge';
+      badge.textContent = 'Orphan';
+
+      if (path && PEERTUBE_BASE) {
+        const img = document.createElement('img');
+        img.alt = '';
+        img.loading = 'lazy';
+        img.onerror = () => setPlaceholder(thumb);
+        img.src = PEERTUBE_BASE + path;
+        thumb.innerHTML = '';
+        thumb.appendChild(img);
+        thumb.appendChild(badge);
+      } else {
+        setPlaceholder(thumb);
+      }
+    }
+
+    function buildCard(video) {
+      const watchUrl = PEERTUBE_BASE + '/videos/watch/' + video.uuid;
+      const card = document.createElement('a');
+      card.className = 'card' + (selectMode ? ' select-mode' : '');
+      card.href = watchUrl;
+      card.target = '_blank';
+      card.rel = 'noopener';
+      card.dataset.uuid = video.uuid;
+
+      card.innerHTML =
+        '<input type="checkbox" class="card-checkbox" aria-label="Select">' +
+        '<div class="card-thumb"></div>' +
+        '<div class="card-body">' +
+          '<div class="card-site">PeerTube</div>' +
+          '<div class="card-title">' + escHtml(video.title) + '</div>' +
+          '<div class="card-footer">' +
+            '<span class="card-status">not in dashboard</span>' +
+            '<span class="card-time">' + relTime(video.publishedAt) + '</span>' +
+          '</div>' +
+        '</div>' +
+        '<button class="card-delete-btn" title="Delete" aria-label="Delete">🗑</button>';
+
+      hydrateThumb(card, video);
+      cardMap.set(video.uuid, card);
+
+      const cb = card.querySelector('.card-checkbox');
+      cb.addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!selectMode) enterSelectMode();
+        toggleSelect(video.uuid, card, cb);
+      });
+
+      card.querySelector('.card-delete-btn').addEventListener('click', e => {
+        e.preventDefault();
+        e.stopPropagation();
+        confirmDelete([video.uuid]);
+      });
+
+      card.addEventListener('click', e => {
+        if (selectMode) {
+          e.preventDefault();
+          toggleSelect(video.uuid, card, cb);
+        }
+      });
+
+      return card;
+    }
+
+    function enterSelectMode() {
+      selectMode = true;
+      document.querySelectorAll('.card').forEach(c => c.classList.add('select-mode'));
+      document.getElementById('bulk-toolbar').hidden = false;
+    }
+
+    function exitSelectMode() {
+      selectMode = false;
+      selectedIds.clear();
+      document.querySelectorAll('.card').forEach(c => {
+        c.classList.remove('select-mode', 'card-selected');
+        const cb = c.querySelector('.card-checkbox');
+        if (cb) cb.classList.remove('is-checked');
+      });
+      document.getElementById('bulk-toolbar').hidden = true;
+      updateBulkCount();
+    }
+
+    function toggleSelect(uuid, card, cb) {
+      if (selectedIds.has(uuid)) {
+        selectedIds.delete(uuid);
+        card.classList.remove('card-selected');
+        cb.classList.remove('is-checked');
+      } else {
+        selectedIds.add(uuid);
+        card.classList.add('card-selected');
+        cb.classList.add('is-checked');
+      }
+      updateBulkCount();
+    }
+
+    function updateBulkCount() {
+      const el = document.getElementById('bulk-count');
+      if (el) el.textContent = selectedIds.size + ' selected';
+    }
+
+    function confirmDelete(uuids) {
+      const n = uuids.length;
+      const modal = document.getElementById('confirm-modal');
+      document.getElementById('modal-msg').textContent =
+        'Delete ' + n + ' video' + (n > 1 ? 's' : '') + ' from PeerTube? This cannot be undone.';
+      modal.hidden = false;
+      document.getElementById('modal-confirm-btn').onclick = async () => {
+        modal.hidden = true;
+        await doDelete(uuids);
+      };
+      document.getElementById('modal-cancel-btn').onclick = () => {
+        modal.hidden = true;
+      };
+      modal.onclick = e => {
+        if (e.target === modal) modal.hidden = true;
+      };
+    }
+
+    async function doDelete(uuids) {
+      const res = await fetch('/api/cleanup/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uuids }),
+      });
+      if (!res.ok) {
+        alert('Delete failed');
+        return;
+      }
+      const data = await res.json();
+      if (data.failed) {
+        alert('Deleted ' + data.deleted + ', failed ' + data.failed);
+      }
+      uuids.forEach(id => selectedIds.delete(id));
+      if (selectedIds.size === 0) exitSelectMode();
+      await loadVideos();
+    }
+
+    async function loadVideos() {
+      const grid = document.getElementById('card-grid');
+      const loading = document.getElementById('loading-msg');
+      const empty = document.getElementById('empty-msg');
+      loading.hidden = false;
+      empty.hidden = true;
+      grid.querySelectorAll('a.card').forEach(el => el.remove());
+      cardMap.clear();
+
+      const res = await fetch('/api/cleanup/videos');
+      loading.hidden = true;
+      if (!res.ok) {
+        empty.textContent = 'Could not load videos from PeerTube.';
+        empty.hidden = false;
+        return;
+      }
+
+      const data = await res.json();
+      if (!data.videos.length) {
+        empty.hidden = false;
+        return;
+      }
+
+      data.videos.forEach(video => grid.appendChild(buildCard(video)));
+    }
+
+    document.getElementById('bulk-cancel-btn').addEventListener('click', exitSelectMode);
+    document.getElementById('bulk-select-all-btn').addEventListener('click', () => {
+      cardMap.forEach((card, uuid) => {
+        const cb = card.querySelector('.card-checkbox');
+        selectedIds.add(uuid);
+        card.classList.add('card-selected');
+        if (cb) cb.classList.add('is-checked');
+      });
+      updateBulkCount();
+    });
+    document.getElementById('bulk-delete-btn').addEventListener('click', () => {
+      if (selectedIds.size === 0) return;
+      confirmDelete([...selectedIds]);
+    });
+
+    loadVideos();
+  </script>
+  {% endif %}
+</body>
+</html>
