@@ -43,7 +43,8 @@ services:
       - ./data/downloads:/downloads
     environment:
       DOWNLOAD_DIR: /downloads
-      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true, "writesubtitles": true, "writeautomaticsub": true}'
+      # Keep downloads simple: subtitles/auto-captions can trigger 429s on some YouTube videos.
+      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true}'
 
   peertube:
     image: chocobozzz/peertube:production-bookworm
