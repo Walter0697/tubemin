@@ -100,7 +100,7 @@ The extension is intentionally not listed in any browser store. Install it local
 **1. Clone the repo** (if you haven't already):
 
 ```bash
-git clone https://github.com/youruser/tubemin.git
+git clone https://github.com/Walter0697/tubemin.git
 ```
 
 **2. Open Chrome extensions page:**
@@ -124,7 +124,7 @@ Firefox-based browsers do not support Chrome-style unpacked loading from `about:
 **1. Clone the repo** (if you haven't already):
 
 ```bash
-git clone https://github.com/youruser/tubemin.git
+git clone https://github.com/Walter0697/tubemin.git
 ```
 
 **2. Open the debugging page:**
