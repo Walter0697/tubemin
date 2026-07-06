@@ -4,6 +4,16 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use tokio_util::io::ReaderStream;
 
+/// PeerTube tag written at upload time for the submitting user, e.g. `submitter:walter`.
+pub fn submitter_peer_tube_tag(submitter_tag: &str) -> Option<String> {
+    submitter_tags(Some(submitter_tag)).into_iter().next()
+}
+
+pub fn video_owned_by_submitter(video_tags: &[String], submitter_tag: &str) -> bool {
+    submitter_peer_tube_tag(submitter_tag)
+        .is_some_and(|expected| video_tags.iter().any(|tag| tag == &expected))
+}
+
 fn submitter_tags(submitter_tag: Option<&str>) -> Vec<String> {
     submitter_tag
         .filter(|tag| !tag.is_empty())
@@ -113,6 +123,16 @@ mod tests {
         assert_eq!(tags.len(), 1);
         assert!((2..=30).contains(&tags[0].chars().count()));
         assert!(tags[0].starts_with("submitter:"));
+    }
+
+    #[test]
+    fn video_owned_by_submitter_matches_tag() {
+        let tag = submitter_peer_tube_tag("walter").unwrap();
+        assert!(video_owned_by_submitter(
+            &vec!["source:extension".into(), tag.clone()],
+            "walter"
+        ));
+        assert!(!video_owned_by_submitter(&vec![tag], "other-user"));
     }
 }
 
@@ -447,6 +467,182 @@ struct UploadedVideo {
 #[serde(rename_all = "camelCase")]
 struct VideoDetails {
     preview_path: String,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListedVideo {
+    pub uuid: String,
+    pub title: String,
+    pub thumbnail_path: Option<String>,
+    pub preview_path: Option<String>,
+    pub published_at: Option<String>,
+    pub tags: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoListResponse {
+    data: Vec<VideoListEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VideoListEntry {
+    uuid: String,
+    name: String,
+    #[serde(default)]
+    tags: Vec<String>,
+    thumbnail_path: Option<String>,
+    preview_path: Option<String>,
+    published_at: Option<String>,
+}
+
+static HTTP_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+
+fn client() -> &'static Client {
+    HTTP_CLIENT.get_or_init(Client::new)
+}
+
+async fn fetch_access_token(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+) -> Result<String> {
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
+
+    let body = client()
+        .get(format!("{}/api/v1/oauth-clients/local", url))
+        .header("Host", &host)
+        .send()
+        .await?
+        .text()
+        .await?;
+    let oauth: OAuthClient = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
+
+    let body = client()
+        .post(format!("{}/api/v1/users/token", url))
+        .header("Host", &host)
+        .form(&[
+            ("client_id", oauth.client_id.as_str()),
+            ("client_secret", oauth.client_secret.as_str()),
+            ("grant_type", "password"),
+            ("response_type", "code"),
+            ("username", username),
+            ("password", password),
+        ])
+        .send()
+        .await?
+        .text()
+        .await?;
+    let token: TokenResponse = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
+    Ok(token.access_token)
+}
+
+/// List videos on the bot account, optionally filtered by a PeerTube tag (e.g. `submitter:walter`).
+pub async fn list_account_videos(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    tags_one_of: Option<&str>,
+) -> Result<Vec<ListedVideo>> {
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
+    let token = fetch_access_token(url, host_override, username, password).await?;
+
+    let mut out = Vec::new();
+    let page_size = 100;
+    let mut start = 0;
+
+    loop {
+        let mut req = client()
+            .get(format!("{}/api/v1/users/me/videos", url))
+            .header("Host", &host)
+            .bearer_auth(&token)
+            .query(&[("count", page_size), ("start", start)]);
+
+        if let Some(tag) = tags_one_of {
+            req = req.query(&[("tagsOneOf", tag)]);
+        }
+
+        let resp = req.send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(anyhow!("PeerTube list videos failed ({}): {}", status, body));
+        }
+
+        let body = resp.text().await?;
+        let page: VideoListResponse = serde_json::from_str(&body)
+            .map_err(|e| anyhow!("video list parse error ({e}): {body}"))?;
+
+        if page.data.is_empty() {
+            break;
+        }
+
+        let batch_len = page.data.len();
+        for entry in page.data {
+            out.push(ListedVideo {
+                uuid: entry.uuid,
+                title: entry.name,
+                thumbnail_path: entry.thumbnail_path,
+                preview_path: entry.preview_path,
+                published_at: entry.published_at,
+                tags: entry.tags,
+            });
+        }
+
+        if batch_len < page_size {
+            break;
+        }
+        start += page_size;
+    }
+
+    Ok(out)
+}
+
+pub async fn get_video_tags(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    video_uuid: &str,
+) -> Result<Vec<String>> {
+    let host = host_override
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| derive_host(url));
+    let token = fetch_access_token(url, host_override, username, password).await?;
+
+    let resp = client()
+        .get(format!("{}/api/v1/videos/{}", url, video_uuid))
+        .header("Host", &host)
+        .bearer_auth(&token)
+        .send()
+        .await?;
+
+    if resp.status().as_u16() == 404 {
+        return Err(anyhow!("video not found"));
+    }
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("PeerTube video lookup failed ({}): {}", status, body));
+    }
+
+    let body = resp.text().await?;
+    let video: VideoDetails = serde_json::from_str(&body)
+        .map_err(|e| anyhow!("video parse error ({e}): {body}"))?;
+    Ok(video.tags)
 }
 
 /// Upload subtitle captions to PeerTube for an already-uploaded video.

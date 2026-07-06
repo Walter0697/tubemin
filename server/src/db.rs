@@ -420,6 +420,15 @@ pub async fn list_submissions(pool: &SqlitePool) -> Result<Vec<Submission>, sqlx
     )
 }
 
+pub async fn all_peertube_uuids(pool: &SqlitePool) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+    let rows: Vec<(String,)> = sqlx::query_as(
+        "SELECT peertube_uuid FROM submissions WHERE peertube_uuid IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|(uuid,)| uuid).collect())
+}
+
 #[derive(sqlx::FromRow)]
 struct StatusCount {
     status: String,
