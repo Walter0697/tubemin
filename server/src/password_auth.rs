@@ -16,8 +16,8 @@ pub struct LoginForm {
     pub password: String,
 }
 
-pub async fn login_form() -> Html<&'static str> {
-    Html(include_str!("../templates/login.html"))
+pub async fn login_form() -> Html<String> {
+    Html(include_str!("../templates/login.html").replace("{{APP_VERSION}}", crate::ASSET_VERSION))
 }
 
 pub async fn login_submit(
@@ -42,6 +42,7 @@ pub async fn login_submit(
     } else {
         Html(
             include_str!("../templates/login.html")
+                .replace("{{APP_VERSION}}", crate::ASSET_VERSION)
                 .replace("<!--ERROR-->", r#"<p class="error">Invalid password.</p>"#),
         )
         .into_response()

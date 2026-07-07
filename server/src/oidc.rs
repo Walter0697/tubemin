@@ -120,7 +120,9 @@ pub async fn build_oidc_client(config: &crate::config::Config) -> anyhow::Result
 
 pub async fn login_page(State(state): State<AppState>) -> impl IntoResponse {
     let label = &state.config.oidc_login_label;
-    let html = include_str!("../templates/login_oidc.html").replace("{{OIDC_LOGIN_LABEL}}", label);
+    let html = include_str!("../templates/login_oidc.html")
+        .replace("{{OIDC_LOGIN_LABEL}}", label)
+        .replace("{{APP_VERSION}}", crate::ASSET_VERSION);
     Html(html)
 }
 

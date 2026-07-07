@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tubemin — Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
   <link rel="icon" type="image/png" href="/static/favicon.png">
 </head>
 <body>
@@ -12,6 +12,7 @@
   <div class="page">
     <div class="dashboard-header">
       <h1 class="page-title">Dashboard</h1>
+      <button id="add-video-btn" class="add-video-btn">+ Add video</button>
     </div>
 
     <div class="filter-bar">
@@ -46,6 +47,20 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="add-modal" hidden>
+    <div class="modal-box">
+      <p class="modal-msg">Add a video by URL. Same sites as the browser extension — anything yt-dlp can download.</p>
+      <form id="add-form">
+        <input type="text" id="add-url-input" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false">
+        <p class="error" id="add-error" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="add-cancel-btn">Cancel</button>
+          <button type="submit" id="add-submit-btn">Add</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="confirm-modal" hidden>
     <div class="modal-box">
       <p class="modal-msg" id="modal-msg"></p>
@@ -70,7 +85,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ asset_version }}"></script>
   <script>
     const PEERTUBE_BASE = "{{ peertube_base | safe }}";
     const PER_PAGE = 24;
@@ -617,6 +632,60 @@
       confirmDelete([...selectedIds]);
     });
 
+    // ── Add video dialog ──────────────────────────────────────────────────────
+    const addModal    = document.getElementById('add-modal');
+    const addForm     = document.getElementById('add-form');
+    const addUrlInput = document.getElementById('add-url-input');
+    const addError    = document.getElementById('add-error');
+    const addSubmit   = document.getElementById('add-submit-btn');
+
+    function openAddModal() {
+      addUrlInput.value = '';
+      addError.hidden = true;
+      addSubmit.disabled = false;
+      addModal.hidden = false;
+      addUrlInput.focus();
+    }
+
+    function closeAddModal() {
+      addModal.hidden = true;
+    }
+
+    document.getElementById('add-video-btn').addEventListener('click', openAddModal);
+    document.getElementById('add-cancel-btn').addEventListener('click', closeAddModal);
+    addModal.addEventListener('click', e => {
+      if (e.target === addModal) closeAddModal();
+    });
+
+    addForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const url = addUrlInput.value.trim();
+      if (!url) return;
+      addError.hidden = true;
+      addSubmit.disabled = true;
+      try {
+        const res = await fetch('/api/submissions/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        if (res.ok) {
+          closeAddModal();
+          navigate(1, currentStatus, currentSearch);
+        } else {
+          let msg = 'Submission failed';
+          try { msg = (await res.json()).error || msg; } catch {}
+          addError.textContent = msg;
+          addError.hidden = false;
+        }
+      } catch {
+        addError.textContent = 'Network error — please try again';
+        addError.hidden = false;
+      } finally {
+        addSubmit.disabled = false;
+      }
+    });
+
     // ── Detail modal ──────────────────────────────────────────────────────────
     document.getElementById('detail-close-btn').addEventListener('click', () => {
       document.getElementById('detail-modal').hidden = true;
@@ -629,6 +698,7 @@
       if (e.key === 'Escape') {
         document.getElementById('detail-modal').hidden = true;
         document.getElementById('confirm-modal').hidden = true;
+        closeAddModal();
       }
     });
 

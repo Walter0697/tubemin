@@ -1,3 +1,7 @@
+/// Cache-busting token for static asset URLs — unique per compile so browsers
+/// refetch CSS/JS after every rebuild, not just on version bumps.
+pub const ASSET_VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), "-", env!("BUILD_ID"));
+
 mod api_keys;
 mod config;
 mod db;
@@ -224,6 +228,7 @@ async fn main() -> anyhow::Result<()> {
             "/api/submissions/delete",
             post(handlers::delete_submissions),
         )
+        .route("/api/submissions/create", post(handlers::submit_web))
         .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))

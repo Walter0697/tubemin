@@ -51,6 +51,7 @@ pub async fn dashboard(
         username => user.display_name(),
         active_page => "dashboard",
         app_version => env!("CARGO_PKG_VERSION"),
+        asset_version => crate::ASSET_VERSION,
         submissions => submissions.iter().map(|s| minijinja::context! {
             url => s.url,
             title => s.title,
@@ -81,6 +82,7 @@ mod tests {
                 username => "admin",
                 active_page => "dashboard",
                 app_version => env!("CARGO_PKG_VERSION"),
+                asset_version => crate::ASSET_VERSION,
             })
             .unwrap();
         assert!(html.contains(r#"<span class="nav-user">admin</span>"#));
