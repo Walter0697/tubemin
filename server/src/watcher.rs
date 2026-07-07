@@ -195,6 +195,15 @@ pub fn start(
                                 error!("Caption upload failed for {}: {}", peertube_uuid, e);
                             }
                         }
+                        // PeerTube stores its own copy, so the import-dir file
+                        // is redundant now — deleting it here is what frees
+                        // disk space. On upload failure it stays for retry.
+                        match tokio::fs::remove_file(&dest).await {
+                            Ok(_) => info!("Removed {} from import dir", dest.display()),
+                            Err(e) => {
+                                error!("Failed to remove {} from import dir: {}", dest.display(), e)
+                            }
+                        }
                     }
                     Err(e) => error!("PeerTube upload failed for {}: {}", dest.display(), e),
                 }
