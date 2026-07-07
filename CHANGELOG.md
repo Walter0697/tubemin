@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.0](https://github.com/Walter0697/tubemin/compare/v0.9.1...v0.10.0) (2026-07-07)
+
+
+### Features
+
+* add video submission dialog on dashboard ([#23](https://github.com/Walter0697/tubemin/issues/23)) ([365fcf0](https://github.com/Walter0697/tubemin/commit/365fcf05dbf20de2092e066c758a2c4c2feeff93))
+* fast HLS downloads via yt-dlp with ffmpeg fallback ([#25](https://github.com/Walter0697/tubemin/issues/25)) ([66bc499](https://github.com/Walter0697/tubemin/commit/66bc499c1e6996700e3ce74577e649b6dba822e5))
+
 ## [0.9.1](https://github.com/Walter0697/tubemin/compare/v0.9.0...v0.9.1) (2026-07-06)
 
 
