@@ -54,6 +54,7 @@ pub async fn cleanup_page(
         username => user.display_name(),
         active_page => "cleanup",
         app_version => env!("CARGO_PKG_VERSION"),
+        asset_version => crate::ASSET_VERSION,
         peertube_enabled => peertube_configured(&state),
         submitter_tag => user.submitter_tag(),
     };

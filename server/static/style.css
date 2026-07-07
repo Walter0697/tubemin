@@ -355,6 +355,17 @@ input::placeholder { color: var(--text-dim); }
 }
 .filter-tab.active .filter-count { opacity: 0.85; }
 
+/* ── Dashboard header ───────────────────────────── */
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.dashboard-header .page-title { margin-bottom: 0; }
+.add-video-btn { white-space: nowrap; }
+
 /* ── Dashboard search ───────────────────────────── */
 .search-input {
   width: 100%;

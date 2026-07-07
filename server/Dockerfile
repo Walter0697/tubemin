@@ -4,6 +4,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 # Cache deps layer
 RUN mkdir src && echo "fn main(){}" > src/main.rs && cargo build --release && rm -rf src
+COPY build.rs ./
 COPY src ./src
 COPY migrations ./migrations
 COPY templates ./templates

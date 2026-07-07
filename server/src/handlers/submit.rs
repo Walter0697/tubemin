@@ -1,9 +1,10 @@
+use crate::oidc::RequireAuth;
 use crate::state::AppState;
 use crate::{api_keys, db, metube};
 use axum::{
     extract::{Json, State},
     http::{HeaderMap, StatusCode},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -63,6 +64,13 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Who is submitting: an API key (extension) or a logged-in web session.
+struct Submitter {
+    api_key_id: Option<String>,
+    owner_sub: Option<String>,
+    owner_display: Option<String>,
+}
+
 pub async fn submit(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -99,8 +107,51 @@ pub async fn submit(
     };
 
     let _ = api_keys::update_last_used(&state.pool, &verified_key.id).await;
-    let source =
-        normalize_optional_text(body.source.as_deref()).or_else(|| Some("extension".to_string()));
+    let submitter = Submitter {
+        api_key_id: Some(verified_key.id),
+        owner_sub: verified_key.owner_sub,
+        owner_display: verified_key.owner_display,
+    };
+    enqueue(state, body, submitter, "extension").await
+}
+
+#[derive(Deserialize)]
+pub struct WebSubmitRequest {
+    pub url: String,
+}
+
+/// Dashboard "Add video" dialog: same validation and pipeline as /api/submit,
+/// but authenticated by the web session instead of an API key.
+pub async fn submit_web(
+    RequireAuth(user): RequireAuth,
+    State(state): State<AppState>,
+    Json(body): Json<WebSubmitRequest>,
+) -> impl IntoResponse {
+    let submitter = Submitter {
+        api_key_id: None,
+        owner_sub: user.stable_subject().map(str::to_string),
+        owner_display: Some(user.owner_display().to_string()),
+    };
+    let body = SubmitRequest {
+        url: body.url,
+        referer: None,
+        source_url: None,
+        source: None,
+        title: None,
+        cookies: None,
+        subtitle_tracks: None,
+    };
+    enqueue(state, body, submitter, "web").await
+}
+
+async fn enqueue(
+    state: AppState,
+    body: SubmitRequest,
+    submitter: Submitter,
+    default_source: &str,
+) -> Response {
+    let source = normalize_optional_text(body.source.as_deref())
+        .or_else(|| Some(default_source.to_string()));
 
     if !crate::url_validator::is_supported_url(&body.url)
         && !crate::url_validator::is_direct_media_url(&body.url)
@@ -115,17 +166,17 @@ pub async fn submit(
     // Write the DB row before submitting to MeTube so the watcher always finds
     // a matching row, even when a fast download completes before this handler returns.
     let is_direct = crate::url_validator::is_direct_media_url(&body.url);
-    let submitter_tag = verified_key
+    let submitter_tag = submitter
         .owner_display
         .as_deref()
         .map(normalize_submitter_tag);
     let reused = db::reset_submission_to_pending(
         &state.pool,
         &body.url,
-        Some(&verified_key.id),
+        submitter.api_key_id.as_deref(),
         source.as_deref(),
-        verified_key.owner_sub.as_deref(),
-        verified_key.owner_display.as_deref(),
+        submitter.owner_sub.as_deref(),
+        submitter.owner_display.as_deref(),
         submitter_tag.as_deref(),
     )
     .await
@@ -143,9 +194,9 @@ pub async fn submit(
             source.as_deref(),
             is_direct,
             body.title.as_deref(),
-            Some(&verified_key.id),
-            verified_key.owner_sub.as_deref(),
-            verified_key.owner_display.as_deref(),
+            submitter.api_key_id.as_deref(),
+            submitter.owner_sub.as_deref(),
+            submitter.owner_display.as_deref(),
             submitter_tag.as_deref(),
         )
         .await
@@ -335,6 +386,121 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(submission.source.as_deref(), Some("extension"));
+    }
+
+    async fn make_web_app() -> (TestServer, MockServer, Arc<sqlx::SqlitePool>) {
+        use crate::oidc::{OidcUser, SESSION_USER_KEY};
+        use axum::routing::get;
+        use tower_sessions::{MemoryStore, Session, SessionManagerLayer};
+
+        let pool = Arc::new(db::init("sqlite::memory:").await.unwrap());
+        let metube_mock = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/add"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status":"ok"})))
+            .mount(&metube_mock)
+            .await;
+
+        let config = Arc::new(Config {
+            api_port: 3000,
+            metube_url: metube_mock.uri(),
+            downloads_dir: "/tmp/downloads".into(),
+            peertube_import_dir: "/tmp/import".into(),
+            database_url: "sqlite::memory:".into(),
+            auth_mode: crate::config::AuthMode::Password,
+            admin_password: None,
+            oidc_issuer_url: None,
+            oidc_client_id: None,
+            oidc_client_secret: None,
+            oidc_redirect_url: None,
+            oidc_login_label: "Sign in".into(),
+            peertube_url: None,
+            peertube_host: None,
+            peertube_username: None,
+            peertube_password: None,
+            peertube_admin_email: None,
+            peertube_admin_username: None,
+            peertube_admin_password: None,
+            peertube_video_privacy: 4,
+            peertube_oidc_issuer_url: None,
+            peertube_oidc_client_id: None,
+            peertube_oidc_client_secret: None,
+        });
+
+        let state = AppState {
+            pool: pool.clone(),
+            config,
+            progress: crate::progress::new_progress_map(),
+        };
+
+        async fn test_login(session: Session) -> &'static str {
+            session
+                .insert(
+                    SESSION_USER_KEY,
+                    OidcUser {
+                        sub: Some("web-user".into()),
+                        email: "walter@example.com".into(),
+                        username: Some("walter".into()),
+                    },
+                )
+                .await
+                .unwrap();
+            "ok"
+        }
+
+        let app = Router::new()
+            .route("/api/submissions/create", post(submit_web))
+            .route("/test/login", get(test_login))
+            .layer(SessionManagerLayer::new(MemoryStore::default()))
+            .with_state(state);
+
+        let mut server = TestServer::new(app).unwrap();
+        server.do_save_cookies();
+        (server, metube_mock, pool)
+    }
+
+    #[tokio::test]
+    async fn web_submission_requires_session() {
+        let (server, _mock, _pool) = make_web_app().await;
+        let resp = server
+            .post("/api/submissions/create")
+            .json(&json!({"url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}))
+            .await;
+        resp.assert_status(StatusCode::SEE_OTHER);
+    }
+
+    #[tokio::test]
+    async fn web_submission_creates_with_web_source() {
+        let (server, _mock, pool) = make_web_app().await;
+        server.get("/test/login").await.assert_status_ok();
+
+        let url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        let resp = server
+            .post("/api/submissions/create")
+            .json(&json!({"url": url}))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["status"], "queued");
+
+        let submission = db::get_submission_by_url(&pool, url)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(submission.source.as_deref(), Some("web"));
+        assert_eq!(submission.submitter_display.as_deref(), Some("walter"));
+    }
+
+    #[tokio::test]
+    async fn web_submission_rejects_unsupported_url() {
+        let (server, _mock, _pool) = make_web_app().await;
+        server.get("/test/login").await.assert_status_ok();
+
+        let resp = server
+            .post("/api/submissions/create")
+            .json(&json!({"url": "https://randomsite.xyz/page"}))
+            .await;
+        resp.assert_status(StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[tokio::test]
