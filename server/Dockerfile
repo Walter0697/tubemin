@@ -13,7 +13,7 @@ COPY assets ./assets
 RUN touch src/main.rs && cargo build --release
 
 FROM alpine:3.20
-RUN apk add --no-cache sqlite-libs ca-certificates ffmpeg
+RUN apk add --no-cache sqlite-libs ca-certificates ffmpeg yt-dlp
 WORKDIR /app
 COPY --from=builder /app/target/release/tubemin ./tubemin
 COPY --from=builder /app/migrations ./migrations
