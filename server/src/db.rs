@@ -18,6 +18,7 @@ pub struct Submission {
     pub submitter_tag: Option<String>,
     pub status: String,
     pub is_direct: bool,
+    pub download_method: Option<String>,
     pub submitted_at: String,
     pub updated_at: String,
 }
@@ -364,6 +365,22 @@ pub async fn get_submission_by_url(
     .await
 }
 
+/// Record which download path (yt-dlp / ffmpeg-retry) is handling a direct download.
+pub async fn set_download_method(
+    pool: &SqlitePool,
+    url: &str,
+    method: &str,
+) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query("UPDATE submissions SET download_method = ?, updated_at = ? WHERE url = ?")
+        .bind(method)
+        .bind(&now)
+        .bind(url)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
 /// Reset an error row back to pending (for retry). Returns true if a row was updated.
 pub async fn reset_submission_to_pending(
     pool: &SqlitePool,
@@ -376,7 +393,7 @@ pub async fn reset_submission_to_pending(
 ) -> Result<bool, sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     let result = sqlx::query(
-        "UPDATE submissions SET status = 'pending', filename = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status IN ('error', 'interrupted')"
+        "UPDATE submissions SET status = 'pending', filename = NULL, download_method = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status IN ('error', 'interrupted')"
     )
     .bind(api_key_id)
     .bind(source)

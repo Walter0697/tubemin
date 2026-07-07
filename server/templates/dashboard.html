@@ -126,6 +126,15 @@
         .replace(/\b\w/g, c => c.toUpperCase());
     }
 
+    // Suffix showing which download path is active (yt-dlp fast path or ffmpeg
+    // retry after a yt-dlp failure). Only shown while it matters.
+    function methodLabel(s) {
+      if (!s.download_method) return '';
+      if (s.status !== 'downloading' && s.status !== 'error') return '';
+      const name = s.download_method === 'ffmpeg-retry' ? 'ffmpeg retry' : s.download_method;
+      return ' · ' + name;
+    }
+
     // ── Card rendering ────────────────────────────────────────────────────────
 
     function buildCard(s) {
@@ -151,7 +160,7 @@
           '<div class="card-url">' + escHtml(s.url) + '</div>' +
           '<div class="card-footer">' +
             '<span class="card-status">' +
-              '<span class="status-dot status-' + s.status + '"></span>' + s.status +
+              '<span class="status-dot status-' + s.status + '"></span>' + s.status + escHtml(methodLabel(s)) +
             '</span>' +
             '<span class="card-time">' + relTime(s.submitted_at) + '</span>' +
           '</div>' +
@@ -276,7 +285,7 @@
         : '';
       status.innerHTML =
         '<span class="status-dot status-' + s.status + '"></span>' +
-        '<span>' + s.status + escHtml(pctLabel) + '</span>';
+        '<span>' + s.status + escHtml(methodLabel(s)) + escHtml(pctLabel) + '</span>';
 
       // Title
       title.textContent = s.title || siteHost(s.url);
@@ -419,7 +428,7 @@
 
       if (dot) {
         dot.className = 'status-dot status-' + s.status;
-        dot.nextSibling.textContent = s.status;
+        dot.nextSibling.textContent = s.status + methodLabel(s);
       }
       if (titleEl && s.title) {
         titleEl.textContent = s.title;
@@ -447,7 +456,7 @@
           : '';
         statusLabel.innerHTML =
           '<span class="status-dot status-' + s.status + '"></span>' +
-          s.status + escHtml(pct);
+          s.status + escHtml(methodLabel(s)) + escHtml(pct);
       }
 
       // Pick up thumbnail once imported

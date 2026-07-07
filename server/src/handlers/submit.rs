@@ -198,6 +198,7 @@ pub async fn submit(
                 prog_key,
                 Some(prog_map),
                 subtitle_tracks,
+                Some(&pool),
             )
             .await
             {

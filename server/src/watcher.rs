@@ -265,6 +265,10 @@ pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
     if matches!(ext, "part" | "ytdl" | "tmp" | "json") {
         return true;
     }
+    // yt-dlp concurrent-fragment files: video.mp4.part-Frag12
+    if ext.starts_with("part-") {
+        return true;
+    }
     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     // MeTube in-progress: video.temp.ext
     if stem.ends_with(".temp") {
@@ -340,6 +344,9 @@ mod tests {
         )));
         assert!(is_temp_file(std::path::Path::new(
             "/downloads/video.f399.mp4"
+        )));
+        assert!(is_temp_file(std::path::Path::new(
+            "/downloads/video.mp4.part-Frag12"
         )));
         assert!(is_temp_file(std::path::Path::new(
             "/downloads/video.info.json"

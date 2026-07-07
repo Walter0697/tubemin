@@ -37,6 +37,7 @@ pub struct SubmissionRow {
     pub submitter_tag: Option<String>,
     pub status: String,
     pub progress: Option<f32>,
+    pub download_method: Option<String>,
     pub submitted_at: String,
     pub updated_at: String,
 }
@@ -89,6 +90,7 @@ pub async fn list_submissions(
                         submitter_tag: s.submitter_tag,
                         status: s.status,
                         progress,
+                        download_method: s.download_method,
                         submitted_at: s.submitted_at,
                         updated_at: s.updated_at,
                     }

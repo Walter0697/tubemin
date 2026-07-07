@@ -15,6 +15,8 @@ fn client() -> &'static Client {
 
 /// Download a direct media URL. Returns the filename (not full path) of the completed file.
 /// `explicit_subtitles` are (lang, url) pairs from `<track>` elements captured by the extension.
+/// `pool` is used to record which download path (yt-dlp / ffmpeg fallback) is active so the
+/// dashboard can show it next to the status badge.
 pub async fn download(
     url: &str,
     referer: Option<&str>,
@@ -24,6 +26,7 @@ pub async fn download(
     progress_key: Option<String>,
     progress_map: Option<crate::progress::ProgressMap>,
     explicit_subtitles: Vec<(String, String)>,
+    pool: Option<&sqlx::SqlitePool>,
 ) -> Result<String, anyhow::Error> {
     let url_path = url.split('?').next().unwrap_or(url);
     let is_hls = url_path.ends_with(".m3u8") || url_path.ends_with(".mpd");
@@ -43,7 +46,26 @@ pub async fn download(
     let dest = unique_dest(downloads_dir, &base, ".mp4");
 
     if is_hls {
-        download_hls(url, referer, cookies, &dest, progress_key, progress_map).await?;
+        // Fast path: yt-dlp downloads HLS fragments concurrently, so it isn't
+        // limited by the CDN's per-connection speed cap the way ffmpeg is.
+        set_method(pool, url, "yt-dlp").await;
+        let ytdlp = download_hls_ytdlp(
+            url,
+            referer,
+            cookies,
+            &dest,
+            progress_key.clone(),
+            progress_map.clone(),
+        )
+        .await;
+        if let Err(e) = ytdlp {
+            tracing::warn!(error = %e, url = %url, "yt-dlp download failed; retrying with ffmpeg");
+            set_method(pool, url, "ffmpeg-retry").await;
+            if let (Some(key), Some(ref map)) = (progress_key.as_deref(), progress_map.as_ref()) {
+                crate::progress::set(map, key, 0.0);
+            }
+            download_hls(url, referer, cookies, &dest, progress_key, progress_map).await?;
+        }
         // Best-effort: extract subtitle tracks from the HLS master playlist.
         extract_hls_subtitles(url, referer, cookies, &dest).await;
     } else {
@@ -62,6 +84,156 @@ pub async fn download(
         .unwrap_or("video.mp4")
         .to_string();
     Ok(filename)
+}
+
+// Best-effort DB update of the active download path; skipped when no pool given.
+async fn set_method(pool: Option<&sqlx::SqlitePool>, url: &str, method: &str) {
+    if let Some(pool) = pool {
+        if let Err(e) = crate::db::set_download_method(pool, url, method).await {
+            tracing::warn!(error = %e, "failed to record download method");
+        }
+    }
+}
+
+// ── HLS via yt-dlp (concurrent fragments) ──────────────────────────────────
+
+async fn download_hls_ytdlp(
+    url: &str,
+    referer: Option<&str>,
+    cookies: Option<&str>,
+    dest: &Path,
+    progress_key: Option<String>,
+    progress_map: Option<crate::progress::ProgressMap>,
+) -> Result<(), anyhow::Error> {
+    use std::process::Stdio;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+
+    // Work in container-local scratch space, not the downloads dir: /downloads
+    // is a bind mount, and yt-dlp's concurrent fragment writes + 1GB-scale remux
+    // can wedge Docker Desktop's FUSE file sharing. This also keeps in-progress
+    // files invisible to the downloads watcher. Only the finished file is moved
+    // across in a single sequential copy.
+    let work_dir = std::env::temp_dir()
+        .join("tubemin-ytdlp")
+        .join(dest.file_stem().and_then(|s| s.to_str()).unwrap_or("video"));
+    tokio::fs::create_dir_all(&work_dir).await?;
+    // Literal .mp4 extension so yt-dlp writes to exactly this path.
+    let part = work_dir.join(dest.file_name().unwrap_or_default());
+    info!("HLS download (yt-dlp): {} → {}", url, dest.display());
+
+    let mut cmd = tokio::process::Command::new("yt-dlp");
+    cmd.args([
+        "--concurrent-fragments",
+        "8",
+        "--user-agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "--no-playlist",
+        "--force-overwrites",
+        "--no-cache-dir",
+        "--socket-timeout",
+        "30",
+        "--retries",
+        "5",
+        "--fragment-retries",
+        "5",
+        "--remux-video",
+        "mp4",
+        "--newline",
+        "--progress-template",
+        "download:tubemin-frag %(progress.fragment_index)s %(progress.fragment_count)s",
+    ]);
+    if let Some(r) = referer {
+        cmd.args(["--referer", r]);
+    }
+    if let Some(c) = cookies {
+        cmd.args(["--add-headers", &format!("Cookie:{}", c)]);
+    }
+    cmd.args(["-o", part.to_str().unwrap_or(""), url]);
+
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("failed to spawn yt-dlp: {}", e))?;
+
+    let stdout = child.stdout.take().unwrap();
+    let stderr_stream = child.stderr.take().unwrap();
+
+    // Collect stderr so failures carry a useful message.
+    let stderr_task = tokio::spawn(async move {
+        let mut tail: Vec<String> = Vec::new();
+        let mut lines = BufReader::new(stderr_stream).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if tail.len() >= 10 {
+                tail.remove(0);
+            }
+            tail.push(line);
+        }
+        tail.join("\n")
+    });
+
+    let pk = progress_key.clone();
+    let pm = progress_map.clone();
+    tokio::spawn(async move {
+        let mut lines = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let (Some(frac), Some(key), Some(ref map)) =
+                (parse_ytdlp_progress(&line), pk.as_deref(), pm.as_ref())
+            {
+                crate::progress::set(map, key, frac);
+            }
+        }
+    });
+
+    let status = child.wait().await?;
+
+    if let (Some(key), Some(ref map)) = (progress_key.as_deref(), progress_map.as_ref()) {
+        crate::progress::remove(map, key);
+    }
+
+    if !status.success() {
+        let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        let stderr_tail = stderr_task.await.unwrap_or_default();
+        return Err(anyhow::anyhow!(
+            "yt-dlp exited with status {}: {}",
+            status,
+            stderr_tail
+        ));
+    }
+    if !part.exists() {
+        let _ = tokio::fs::remove_dir_all(&work_dir).await;
+        return Err(anyhow::anyhow!(
+            "yt-dlp exited successfully but wrote no output file"
+        ));
+    }
+
+    if let Err(e) = extract_thumbnail(&part, dest).await {
+        tracing::warn!("thumbnail extraction failed for {}: {}", dest.display(), e);
+    }
+    // rename() fails across filesystems (scratch dir → bind mount), so fall
+    // back to copy + delete. Copy to a .tmp name the watcher ignores, then
+    // rename into place so the watcher only ever sees a complete file.
+    if tokio::fs::rename(&part, dest).await.is_err() {
+        let staging = dest.with_extension("tmp");
+        tokio::fs::copy(&part, &staging).await?;
+        tokio::fs::rename(&staging, dest).await?;
+    }
+    let _ = tokio::fs::remove_dir_all(&work_dir).await;
+    info!("HLS download complete (yt-dlp): {}", dest.display());
+    Ok(())
+}
+
+// Parses a "tubemin-frag <index> <count>" progress line into a 0..1 fraction.
+fn parse_ytdlp_progress(line: &str) -> Option<f32> {
+    let rest = line.trim().strip_prefix("tubemin-frag ")?;
+    let mut parts = rest.split_whitespace();
+    let index: f32 = parts.next()?.parse().ok()?;
+    let count: f32 = parts.next()?.parse().ok()?;
+    if count > 0.0 {
+        Some((index / count).clamp(0.0, 1.0))
+    } else {
+        None
+    }
 }
 
 // ── HLS via ffmpeg ─────────────────────────────────────────────────────────
@@ -483,5 +655,19 @@ mod tests {
     #[test]
     fn sanitize_removes_null_byte() {
         assert_eq!(sanitize_name("hello\0world"), "hello_world");
+    }
+
+    #[test]
+    fn ytdlp_progress_parses_fragment_counts() {
+        assert_eq!(parse_ytdlp_progress("tubemin-frag 150 300"), Some(0.5));
+        assert_eq!(parse_ytdlp_progress("tubemin-frag 300 300"), Some(1.0));
+    }
+
+    #[test]
+    fn ytdlp_progress_rejects_unknown_or_malformed() {
+        assert_eq!(parse_ytdlp_progress("tubemin-frag NA NA"), None);
+        assert_eq!(parse_ytdlp_progress("tubemin-frag 5 0"), None);
+        assert_eq!(parse_ytdlp_progress("tubemin-frag 5"), None);
+        assert_eq!(parse_ytdlp_progress("[download]  42.0% of ~ 500MB"), None);
     }
 }
