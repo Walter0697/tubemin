@@ -19,6 +19,10 @@ pub struct Submission {
     pub status: String,
     pub is_direct: bool,
     pub download_method: Option<String>,
+    pub downloading_at: Option<String>,
+    pub imported_at: Option<String>,
+    pub transcoding_at: Option<String>,
+    pub completed_at: Option<String>,
     pub submitted_at: String,
     pub updated_at: String,
 }
@@ -169,8 +173,9 @@ pub async fn mark_pending_as_error_by_url(pool: &SqlitePool, url: &str) -> Resul
 pub async fn mark_downloading(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'downloading', updated_at = ? WHERE url = ? AND status IN ('pending', 'interrupted')"
+        "UPDATE submissions SET status = 'downloading', downloading_at = ?, updated_at = ? WHERE url = ? AND status IN ('pending', 'interrupted')"
     )
+    .bind(&now)
     .bind(&now)
     .bind(url)
     .execute(pool)
@@ -186,9 +191,10 @@ pub async fn mark_imported_by_url(
 ) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'imported', filename = ?, updated_at = ? WHERE url = ? AND status IN ('pending', 'downloading')"
+        "UPDATE submissions SET status = 'imported', filename = ?, imported_at = ?, updated_at = ? WHERE url = ? AND status IN ('pending', 'downloading')"
     )
     .bind(filename)
+    .bind(&now)
     .bind(&now)
     .bind(url)
     .execute(pool)
@@ -222,10 +228,11 @@ pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx
     // exactly. 'error' and 'interrupted' are included so rows marked during a
     // MeTube/tubemin restart recover when their file eventually lands.
     let claimed = sqlx::query(
-        "UPDATE submissions SET status = 'imported', updated_at = ?
+        "UPDATE submissions SET status = 'imported', imported_at = ?, updated_at = ?
          WHERE filename = ? AND is_direct = 0
            AND status IN ('pending', 'downloading', 'interrupted', 'error')",
     )
+    .bind(&now)
     .bind(&now)
     .bind(filename)
     .execute(pool)
@@ -238,10 +245,11 @@ pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx
     // is_direct=1 rows are excluded because those are handled by
     // mark_imported_by_url with URL matching.
     sqlx::query(
-        "UPDATE submissions SET status = 'imported', filename = ?, updated_at = ?
+        "UPDATE submissions SET status = 'imported', filename = ?, imported_at = ?, updated_at = ?
          WHERE id = (SELECT id FROM submissions WHERE status IN ('pending', 'downloading') AND is_direct = 0 AND filename IS NULL ORDER BY submitted_at ASC LIMIT 1)"
     )
     .bind(filename)
+    .bind(&now)
     .bind(&now)
     .execute(pool)
     .await?;
@@ -270,8 +278,9 @@ pub async fn reset_interrupted_downloads(pool: &SqlitePool) -> Result<(), sqlx::
 pub async fn mark_transcoding(pool: &SqlitePool, peertube_uuid: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'transcoding', updated_at = ? WHERE peertube_uuid = ? AND status = 'imported'"
+        "UPDATE submissions SET status = 'transcoding', transcoding_at = ?, updated_at = ? WHERE peertube_uuid = ? AND status = 'imported'"
     )
+    .bind(&now)
     .bind(&now)
     .bind(peertube_uuid)
     .execute(pool)
@@ -282,8 +291,9 @@ pub async fn mark_transcoding(pool: &SqlitePool, peertube_uuid: &str) -> Result<
 pub async fn mark_complete(pool: &SqlitePool, peertube_uuid: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'complete', updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'transcoding')"
+        "UPDATE submissions SET status = 'complete', completed_at = ?, updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'transcoding')"
     )
+    .bind(&now)
     .bind(&now)
     .bind(peertube_uuid)
     .execute(pool)
@@ -393,7 +403,7 @@ pub async fn reset_submission_to_pending(
 ) -> Result<bool, sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     let result = sqlx::query(
-        "UPDATE submissions SET status = 'pending', filename = NULL, download_method = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status IN ('error', 'interrupted')"
+        "UPDATE submissions SET status = 'pending', filename = NULL, download_method = NULL, downloading_at = NULL, imported_at = NULL, transcoding_at = NULL, completed_at = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status IN ('error', 'interrupted')"
     )
     .bind(api_key_id)
     .bind(source)

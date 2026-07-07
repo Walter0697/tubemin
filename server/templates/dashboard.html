@@ -126,6 +126,18 @@
         .replace(/\b\w/g, c => c.toUpperCase());
     }
 
+    // "3m 43s" style duration between two ISO timestamps; null if not computable.
+    function stageDuration(startIso, endIso) {
+      if (!startIso || !endIso) return null;
+      const ms = Date.parse(endIso) - Date.parse(startIso);
+      if (isNaN(ms) || ms < 0) return null;
+      const s = Math.round(ms / 1000);
+      if (s < 60) return s + 's';
+      const m = Math.floor(s / 60);
+      if (m < 60) return m + 'm ' + (s % 60) + 's';
+      return Math.floor(m / 60) + 'h ' + (m % 60) + 'm';
+    }
+
     // Suffix showing which download path is active (yt-dlp fast path or ffmpeg
     // retry after a yt-dlp failure). Only shown while it matters.
     function methodLabel(s) {
@@ -317,6 +329,27 @@
       if (s.submitter_display) {
         const tagText = s.submitter_tag ? ' <span style="color:var(--text-dim)">(submitter:' + escHtml(s.submitter_tag) + ')</span>' : '';
         addRow('Submitted by', escHtml(s.submitter_display) + tagText);
+      }
+
+      // Stage timings. While a stage is running, show elapsed time so far.
+      const nowIso = new Date().toISOString();
+      let dlDur = stageDuration(s.downloading_at, s.imported_at);
+      if (!dlDur && s.status === 'downloading') {
+        const running = stageDuration(s.downloading_at, nowIso);
+        if (running) dlDur = running + '…';
+      }
+      if (dlDur) {
+        const method = s.download_method ? ' <span style="color:var(--text-dim)">(' + escHtml(s.download_method === 'ffmpeg-retry' ? 'ffmpeg retry' : s.download_method) + ')</span>' : '';
+        addRow('Download took', dlDur + method);
+      }
+      const tcStart = s.transcoding_at || s.imported_at;
+      let tcDur = stageDuration(tcStart, s.completed_at);
+      if (!tcDur && (s.status === 'transcoding' || s.status === 'imported')) {
+        const running = stageDuration(tcStart, nowIso);
+        if (running) tcDur = running + '…';
+      }
+      if (tcDur) {
+        addRow('Transcode took', tcDur);
       }
 
       // Action buttons

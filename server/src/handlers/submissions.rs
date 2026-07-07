@@ -38,6 +38,10 @@ pub struct SubmissionRow {
     pub status: String,
     pub progress: Option<f32>,
     pub download_method: Option<String>,
+    pub downloading_at: Option<String>,
+    pub imported_at: Option<String>,
+    pub transcoding_at: Option<String>,
+    pub completed_at: Option<String>,
     pub submitted_at: String,
     pub updated_at: String,
 }
@@ -91,6 +95,10 @@ pub async fn list_submissions(
                         status: s.status,
                         progress,
                         download_method: s.download_method,
+                        downloading_at: s.downloading_at,
+                        imported_at: s.imported_at,
+                        transcoding_at: s.transcoding_at,
+                        completed_at: s.completed_at,
                         submitted_at: s.submitted_at,
                         updated_at: s.updated_at,
                     }
