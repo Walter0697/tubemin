@@ -96,6 +96,7 @@ pub fn start(
                 || is_temp_file(&path)
                 || is_image_file(&path)
                 || is_subtitle_file(&path)
+                || !is_video_file(&path)
                 || seen.contains(&path)
             {
                 continue;
@@ -260,6 +261,19 @@ pub(crate) fn is_image_file(path: &std::path::Path) -> bool {
     )
 }
 
+/// Only enqueue files that PeerTube can receive as video uploads. The
+/// downloads directory also contains metadata, thumbnails, and other sidecars
+/// left by downloaders when a job fails.
+pub(crate) fn is_video_file(path: &std::path::Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase())
+            .as_deref(),
+        Some("mp4") | Some("webm") | Some("mkv") | Some("mov") | Some("avi")
+    )
+}
+
 pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
     if matches!(ext, "part" | "ytdl" | "tmp" | "json") {
@@ -354,6 +368,21 @@ mod tests {
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mkv")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.webm")));
+    }
+
+    #[test]
+    fn video_file_detection_rejects_sidecars() {
+        assert!(is_video_file(std::path::Path::new("/downloads/video.mp4")));
+        assert!(is_video_file(std::path::Path::new("/downloads/video.MKV")));
+        assert!(!is_video_file(std::path::Path::new(
+            "/downloads/video.danmaku.xml"
+        )));
+        assert!(!is_video_file(std::path::Path::new(
+            "/downloads/video.mp4.part"
+        )));
+        assert!(!is_video_file(std::path::Path::new(
+            "/downloads/video.info.json"
+        )));
     }
 
     #[tokio::test]

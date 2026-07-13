@@ -19,6 +19,7 @@ pub struct Submission {
     pub status: String,
     pub is_direct: bool,
     pub download_method: Option<String>,
+    pub download_retries: i64,
     pub downloading_at: Option<String>,
     pub imported_at: Option<String>,
     pub transcoding_at: Option<String>,
@@ -168,6 +169,30 @@ pub async fn mark_pending_as_error_by_url(pool: &SqlitePool, url: &str) -> Resul
     .execute(pool)
     .await?;
     Ok(())
+}
+
+/// Atomically claim the next retry for a failed MeTube download.
+/// Returns false once the retry budget has been exhausted.
+pub async fn claim_metube_retry(
+    pool: &SqlitePool,
+    url: &str,
+    max_retries: i64,
+) -> Result<bool, sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "UPDATE submissions
+         SET status = 'pending', filename = NULL, download_method = NULL,
+             downloading_at = NULL, imported_at = NULL, updated_at = ?,
+             download_retries = download_retries + 1
+         WHERE url = ? AND is_direct = 0 AND status = 'error'
+           AND download_retries < ?",
+    )
+    .bind(&now)
+    .bind(url)
+    .bind(max_retries)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 pub async fn mark_downloading(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
@@ -403,7 +428,7 @@ pub async fn reset_submission_to_pending(
 ) -> Result<bool, sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     let result = sqlx::query(
-        "UPDATE submissions SET status = 'pending', filename = NULL, download_method = NULL, downloading_at = NULL, imported_at = NULL, transcoding_at = NULL, completed_at = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status IN ('error', 'interrupted')"
+        "UPDATE submissions SET status = 'pending', filename = NULL, download_method = NULL, download_retries = 0, downloading_at = NULL, imported_at = NULL, transcoding_at = NULL, completed_at = NULL, api_key_id = ?, source = ?, submitter_sub = ?, submitter_display = ?, submitter_tag = ?, updated_at = ? WHERE url = ? AND status IN ('error', 'interrupted')"
     )
     .bind(api_key_id)
     .bind(source)
@@ -661,6 +686,37 @@ mod tests {
             .fetch_one(pool)
             .await
             .unwrap()
+    }
+
+    #[tokio::test]
+    async fn metube_retry_budget_is_three() {
+        let pool = test_pool().await;
+        create_basic(&pool, "retry", "https://example.com/retry").await;
+        sqlx::query("UPDATE submissions SET status = 'error' WHERE id = 'retry'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        for expected in 1..=3 {
+            assert!(claim_metube_retry(&pool, "https://example.com/retry", 3)
+                .await
+                .unwrap());
+            let retries: i64 = sqlx::query_scalar(
+                "SELECT download_retries FROM submissions WHERE id = 'retry'",
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(retries, expected);
+            sqlx::query("UPDATE submissions SET status = 'error' WHERE id = 'retry'")
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        assert!(!claim_metube_retry(&pool, "https://example.com/retry", 3)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
