@@ -1,0 +1,1 @@
+ALTER TABLE submissions ADD COLUMN download_retries INTEGER NOT NULL DEFAULT 0;

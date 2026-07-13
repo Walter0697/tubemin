@@ -11,6 +11,8 @@ use serde_json::json;
 use tracing::error;
 use uuid::Uuid;
 
+const MAX_DOWNLOAD_RETRIES: usize = 3;
+
 #[derive(Deserialize)]
 pub struct SubtitleTrack {
     pub lang: String,
@@ -240,26 +242,50 @@ async fn enqueue(
             if let Some(ref key) = prog_key {
                 crate::progress::set(&prog_map, key, 0.0);
             }
-            match crate::direct_download::download(
-                &url,
-                referer.as_deref(),
-                title.as_deref(),
-                cookies.as_deref(),
-                &dl_dir,
-                prog_key,
-                Some(prog_map),
-                subtitle_tracks,
-                Some(&pool),
-            )
-            .await
-            {
-                Ok(filename) => {
-                    let _ = db::mark_imported_by_url(&pool, &url, &filename).await;
+            let mut result = None;
+            for attempt in 0..=MAX_DOWNLOAD_RETRIES {
+                if attempt > 0 {
+                    tracing::warn!(
+                        url = %url,
+                        attempt,
+                        "retrying failed direct download"
+                    );
+                    if let Some(ref key) = prog_key {
+                        crate::progress::set(&prog_map, key, 0.0);
+                    }
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, url = %url, "direct download failed");
-                    let _ = db::mark_pending_as_error_by_url(&pool, &url).await;
+                match crate::direct_download::download(
+                    &url,
+                    referer.as_deref(),
+                    title.as_deref(),
+                    cookies.as_deref(),
+                    &dl_dir,
+                    prog_key.clone(),
+                    Some(prog_map.clone()),
+                    subtitle_tracks.clone(),
+                    Some(&pool),
+                )
+                .await
+                {
+                    Ok(filename) => {
+                        result = Some(filename);
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            url = %url,
+                            attempt,
+                            "direct download attempt failed"
+                        );
+                    }
                 }
+            }
+            if let Some(filename) = result {
+                let _ = db::mark_imported_by_url(&pool, &url, &filename).await;
+            } else {
+                tracing::error!(url = %url, "direct download failed after retries");
+                let _ = db::mark_active_as_error_by_url(&pool, &url).await;
             }
         });
         return (
@@ -271,8 +297,22 @@ async fn enqueue(
             .into_response();
     }
 
-    if let Err(e) = metube::submit(&state.config.metube_url, &body.url).await {
-        error!(error = %e, "failed to submit URL to metube");
+    let mut metube_submitted = false;
+    for attempt in 0..=MAX_DOWNLOAD_RETRIES {
+        if attempt > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+        match metube::submit(&state.config.metube_url, &body.url).await {
+            Ok(()) => {
+                metube_submitted = true;
+                break;
+            }
+            Err(e) => {
+                error!(error = %e, attempt, "failed to submit URL to metube");
+            }
+        }
+    }
+    if !metube_submitted {
         let _ = db::mark_pending_as_error_by_url(&state.pool, &body.url).await;
         return (
             StatusCode::SERVICE_UNAVAILABLE,

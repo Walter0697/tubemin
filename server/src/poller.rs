@@ -5,6 +5,8 @@ use std::sync::Arc;
 use tokio::time::{interval, Duration};
 use tracing::{error, warn};
 
+const MAX_DOWNLOAD_RETRIES: i64 = 3;
+
 pub fn start(
     metube_url: String,
     pool: Arc<SqlitePool>,
@@ -69,6 +71,34 @@ pub fn start(
                             {
                                 error!(error = %e, url = %item.url, "db error updating title");
                             }
+                        }
+                        match crate::db::claim_metube_retry(&pool, &item.url, MAX_DOWNLOAD_RETRIES)
+                            .await
+                        {
+                            Ok(true) => {
+                                if let Err(e) = crate::metube::submit(&metube_url, &item.url).await
+                                {
+                                    let _ =
+                                        crate::db::mark_pending_as_error_by_url(&pool, &item.url)
+                                            .await;
+                                    error!(
+                                        error = %e,
+                                        url = %item.url,
+                                        "failed to submit MeTube retry"
+                                    );
+                                } else {
+                                    warn!(
+                                        url = %item.url,
+                                        "retrying failed MeTube download"
+                                    );
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(e) => error!(
+                                error = %e,
+                                url = %item.url,
+                                "db error claiming MeTube retry"
+                            ),
                         }
                     }
 
