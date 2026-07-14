@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct PeerTubeConfig {
     pub url: String,
@@ -12,6 +12,114 @@ pub struct PeerTubeConfig {
     pub username: String,
     pub password: String,
     pub privacy: u8,
+}
+
+/// Retry files left in the PeerTube import directory by a previous failed
+/// upload. The normal watcher only watches /downloads, so without this
+/// startup pass a file can remain stuck forever after an upload error.
+pub async fn retry_import_dir(
+    import_dir: &std::path::Path,
+    pool: &SqlitePool,
+    pt: &PeerTubeConfig,
+) {
+    let mut entries = match tokio::fs::read_dir(import_dir).await {
+        Ok(entries) => entries,
+        Err(e) => {
+            error!(error = %e, path = %import_dir.display(), "startup import recovery: cannot read import directory");
+            return;
+        }
+    };
+
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if !path.is_file() || !is_video_file(&path) {
+            continue;
+        }
+        let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+
+        let row: Option<(String, Option<String>)> = match sqlx::query_as(
+            "SELECT status, peertube_uuid FROM submissions
+             WHERE filename = ? AND status IN ('imported', 'error')
+             ORDER BY submitted_at DESC LIMIT 1",
+        )
+        .bind(filename)
+        .fetch_optional(pool)
+        .await
+        {
+            Ok(row) => row,
+            Err(e) => {
+                error!(error = %e, filename, "startup import recovery: database lookup failed");
+                continue;
+            }
+        };
+
+        let Some((status, peertube_uuid)) = row else {
+            continue;
+        };
+        if peertube_uuid.is_some() {
+            info!(
+                filename,
+                status, "startup import recovery: PeerTube video already exists"
+            );
+            continue;
+        }
+
+        let mut meta = crate::video_meta::load_for(&path);
+        if meta.title.is_none() {
+            meta.title = crate::db::get_title_by_filename(pool, filename)
+                .await
+                .ok()
+                .flatten();
+        }
+        let (submitter_display, submitter_tag) =
+            crate::db::get_submitter_by_filename(pool, filename)
+                .await
+                .unwrap_or((None, None));
+        let source = crate::db::get_source_by_filename(pool, filename)
+            .await
+            .ok()
+            .flatten();
+
+        info!(
+            filename,
+            status, "startup import recovery: retrying PeerTube upload"
+        );
+        match crate::peertube::upload(
+            &pt.url,
+            pt.host.as_deref(),
+            &pt.username,
+            &pt.password,
+            pt.privacy,
+            &path,
+            &meta,
+            None,
+            submitter_display.as_deref(),
+            submitter_tag.as_deref(),
+            source.as_deref(),
+        )
+        .await
+        {
+            Ok((preview_path, peertube_uuid)) => {
+                if let Err(e) =
+                    crate::db::set_peertube_thumb(pool, filename, &preview_path, &peertube_uuid)
+                        .await
+                {
+                    error!(error = %e, filename, "startup import recovery: failed to store PeerTube UUID");
+                    continue;
+                }
+                if let Err(e) = tokio::fs::remove_file(&path).await {
+                    warn!(error = %e, filename, "startup import recovery: upload succeeded but could not remove import file");
+                } else {
+                    info!(filename, "startup import recovery: upload succeeded");
+                }
+            }
+            Err(e) => {
+                warn!(error = %e, filename, "startup import recovery: PeerTube upload still failed")
+            }
+        }
+    }
 }
 
 pub fn start(
@@ -305,6 +413,15 @@ pub(crate) async fn handle_new_file(
     import_dir: &PathBuf,
     pool: &SqlitePool,
 ) -> Option<PathBuf> {
+    // Keep this guard at the move boundary as well as in the event loop. A
+    // downloads directory contains yt-dlp/MeTube sidecars (for example
+    // `.danmaku.xml` and `.info.json`), and none of them may ever reach the
+    // PeerTube watched folder, even if this helper is called by a future
+    // code path or a queued event races with another file operation.
+    if !path.is_file() || is_temp_file(path) || !is_video_file(path) {
+        return None;
+    }
+
     let filename = match path.file_name().and_then(|n| n.to_str()) {
         Some(n) => n.to_string(),
         None => return None,
@@ -401,6 +518,28 @@ mod tests {
         assert!(
             dst_dir.path().join("video.mp4").exists(),
             "dest file should exist"
+        );
+    }
+
+    #[tokio::test]
+    async fn sidecar_is_not_moved_to_import_dir() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let pool = Arc::new(crate::db::init("sqlite::memory:").await.unwrap());
+
+        let sidecar = src_dir.path().join("圈套 剧场版 (2002).danmaku.xml");
+        std::fs::write(&sidecar, b"<danmaku />").unwrap();
+
+        let result = handle_new_file(&sidecar, &dst_dir.path().to_path_buf(), &pool).await;
+
+        assert!(result.is_none());
+        assert!(sidecar.exists(), "sidecar should remain in downloads");
+        assert!(
+            !dst_dir
+                .path()
+                .join("圈套 剧场版 (2002).danmaku.xml")
+                .exists(),
+            "sidecar must never enter the PeerTube import directory"
         );
     }
 }
