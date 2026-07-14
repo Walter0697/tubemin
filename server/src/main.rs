@@ -159,6 +159,9 @@ async fn main() -> anyhow::Result<()> {
         }),
         _ => None,
     };
+    if let Some(pt) = pt_config.as_ref() {
+        watcher::retry_import_dir(&config.peertube_import_dir, &pool, pt).await;
+    }
     watcher::start(
         config.downloads_dir.clone(),
         config.peertube_import_dir.clone(),

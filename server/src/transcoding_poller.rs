@@ -22,7 +22,7 @@ pub fn start(
         loop {
             ticker.tick().await;
             let rows: Vec<(String, String)> = match sqlx::query_as(
-                "SELECT id, peertube_uuid FROM submissions WHERE peertube_uuid IS NOT NULL AND status IN ('imported', 'transcoding')"
+                "SELECT id, peertube_uuid FROM submissions WHERE peertube_uuid IS NOT NULL AND status IN ('imported', 'transcoding', 'error')"
             )
             .fetch_all(pool.as_ref())
             .await {

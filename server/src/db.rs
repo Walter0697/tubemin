@@ -303,7 +303,7 @@ pub async fn reset_interrupted_downloads(pool: &SqlitePool) -> Result<(), sqlx::
 pub async fn mark_transcoding(pool: &SqlitePool, peertube_uuid: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'transcoding', transcoding_at = ?, updated_at = ? WHERE peertube_uuid = ? AND status = 'imported'"
+        "UPDATE submissions SET status = 'transcoding', transcoding_at = ?, updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'error')"
     )
     .bind(&now)
     .bind(&now)
@@ -316,7 +316,7 @@ pub async fn mark_transcoding(pool: &SqlitePool, peertube_uuid: &str) -> Result<
 pub async fn mark_complete(pool: &SqlitePool, peertube_uuid: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'complete', completed_at = ?, updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'transcoding')"
+        "UPDATE submissions SET status = 'complete', completed_at = ?, updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'transcoding', 'error')"
     )
     .bind(&now)
     .bind(&now)
@@ -329,7 +329,7 @@ pub async fn mark_complete(pool: &SqlitePool, peertube_uuid: &str) -> Result<(),
 pub async fn mark_error_by_uuid(pool: &SqlitePool, peertube_uuid: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "UPDATE submissions SET status = 'error', updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'transcoding')"
+        "UPDATE submissions SET status = 'error', updated_at = ? WHERE peertube_uuid = ? AND status IN ('imported', 'transcoding', 'error')"
     )
     .bind(&now)
     .bind(peertube_uuid)
