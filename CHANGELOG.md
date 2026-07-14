@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.10.1](https://github.com/Walter0697/tubemin/compare/v0.10.0...v0.10.1) (2026-07-14)
+
+
+### Bug Fixes
+
+* filter non-video download artifacts ([#26](https://github.com/Walter0697/tubemin/issues/26)) ([4bb2fe0](https://github.com/Walter0697/tubemin/commit/4bb2fe06175a083d3d2cce5e179a734d12067ccd))
+* recover stalled PeerTube imports on startup ([#28](https://github.com/Walter0697/tubemin/issues/28)) ([575b7e0](https://github.com/Walter0697/tubemin/commit/575b7e00ac1b653f668dca8a30760af3c43c1edd))
+
 ## [0.10.0](https://github.com/Walter0697/tubemin/compare/v0.9.1...v0.10.0) (2026-07-07)
 
 
