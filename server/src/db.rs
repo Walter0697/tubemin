@@ -28,6 +28,25 @@ pub struct Submission {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandoffItem {
+    pub peertube_uuid: Option<String>,
+    pub filename: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HandoffItemState {
+    Claimed,
+    AlreadyClaimed,
+    NotFound,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandoffItemResult {
+    pub filename: String,
+    pub state: HandoffItemState,
+}
+
 pub async fn init(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let opts = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await?;
@@ -86,6 +105,73 @@ pub async fn set_peertube_thumb(
     Ok(())
 }
 
+/// Atomically claim a submission for downstream migration. Matching by the
+/// filename is required because a queued import may not have a UUID yet;
+/// when a UUID is supplied, a different non-null UUID never matches.
+pub async fn claim_handoff_item(
+    pool: &SqlitePool,
+    item: &HandoffItem,
+) -> Result<HandoffItemResult, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let row: Option<(String, String)> = sqlx::query_as(
+        "SELECT id, status FROM submissions
+         WHERE ((? IS NOT NULL AND filename = ?
+                 AND (? IS NULL OR peertube_uuid = ? OR peertube_uuid IS NULL))
+             OR (? IS NULL AND peertube_uuid = ?))
+         ORDER BY submitted_at DESC LIMIT 1",
+    )
+    .bind(&item.filename)
+    .bind(&item.filename)
+    .bind(&item.peertube_uuid)
+    .bind(&item.peertube_uuid)
+    .bind(&item.filename)
+    .bind(&item.peertube_uuid)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let Some((id, status)) = row else {
+        tx.commit().await?;
+        return Ok(HandoffItemResult {
+            filename: item.filename.clone().unwrap_or_default(),
+            state: HandoffItemState::NotFound,
+        });
+    };
+
+    if status == "handed_off" {
+        tx.commit().await?;
+        return Ok(HandoffItemResult {
+            filename: item.filename.clone().unwrap_or_default(),
+            state: HandoffItemState::AlreadyClaimed,
+        });
+    }
+
+    sqlx::query("UPDATE submissions SET status = 'handed_off', updated_at = ? WHERE id = ?")
+        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    Ok(HandoffItemResult {
+        filename: item.filename.clone().unwrap_or_default(),
+        state: HandoffItemState::Claimed,
+    })
+}
+
+pub async fn is_handed_off_by_filename(
+    pool: &SqlitePool,
+    filename: &str,
+) -> Result<bool, sqlx::Error> {
+    let status: Option<String> = sqlx::query_scalar(
+        "SELECT status FROM submissions WHERE filename = ? ORDER BY submitted_at DESC LIMIT 1",
+    )
+    .bind(filename)
+    .fetch_optional(pool)
+    .await?;
+    Ok(status.as_deref() == Some("handed_off"))
+}
+
+
 pub async fn delete_submissions_owned(
     pool: &SqlitePool,
     ids: &[String],
@@ -130,6 +216,46 @@ pub async fn delete_submissions_owned(
         }
     }
     Ok(uuids)
+}
+
+/// Delete submission rows by their PeerTube UUIDs. This is used by the
+/// internal cleanup endpoint after an authorized PeerTube inventory check.
+pub async fn delete_submissions_by_peertube_uuids(
+    pool: &SqlitePool,
+    uuids: &[String],
+) -> Result<Vec<String>, sqlx::Error> {
+    if uuids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut tx = pool.begin().await?;
+    let mut select = sqlx::QueryBuilder::new(
+        "SELECT id FROM submissions WHERE peertube_uuid IN (",
+    );
+    {
+        let mut separated = select.separated(", ");
+        for uuid in uuids {
+            separated.push_bind(uuid);
+        }
+    }
+    select.push(")");
+    let rows: Vec<(String,)> = select
+        .build_query_as()
+        .fetch_all(&mut *tx)
+        .await?;
+    let ids = rows.into_iter().map(|(id,)| id).collect::<Vec<_>>();
+
+    let mut delete = sqlx::QueryBuilder::new("DELETE FROM submissions WHERE peertube_uuid IN (");
+    {
+        let mut separated = delete.separated(", ");
+        for uuid in uuids {
+            separated.push_bind(uuid);
+        }
+    }
+    delete.push(")");
+    delete.build().execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(ids)
 }
 
 pub async fn update_submission_title(
@@ -634,6 +760,182 @@ mod tests {
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "pending");
+    }
+
+    #[tokio::test]
+    async fn cleanup_deletes_rows_by_peertube_uuid_only() {
+        let pool = test_pool().await;
+        create_submission(&pool, "keep", "https://example.com/keep", None, None, false, None, None, None, None, None).await.unwrap();
+        create_submission(&pool, "remove", "https://example.com/remove", None, None, false, None, None, None, None, None).await.unwrap();
+        sqlx::query("UPDATE submissions SET peertube_uuid = ? WHERE id = ?")
+            .bind("uuid-keep")
+            .bind("keep")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE submissions SET peertube_uuid = ? WHERE id = ?")
+            .bind("uuid-remove")
+            .bind("remove")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let deleted = delete_submissions_by_peertube_uuids(&pool, &["uuid-remove".into()]).await.unwrap();
+
+        assert_eq!(deleted, vec!["remove"]);
+        assert!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'keep'")
+            .fetch_one(&pool)
+            .await
+            .unwrap() == 1);
+        assert!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'remove'")
+            .fetch_one(&pool)
+            .await
+            .unwrap() == 0);
+    }
+
+    #[tokio::test]
+    async fn handoff_claims_matching_submission_and_is_idempotent() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "handoff-id",
+            "https://example.com/handoff",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        mark_imported(&pool, "handoff.mp4").await.unwrap();
+        set_peertube_thumb(&pool, "handoff.mp4", "/thumb.jpg", "uuid-handoff")
+            .await
+            .unwrap();
+
+        let item = HandoffItem {
+            peertube_uuid: Some("uuid-handoff".into()),
+            filename: Some("handoff.mp4".into()),
+        };
+        assert_eq!(
+            claim_handoff_item(&pool, &item).await.unwrap().state,
+            HandoffItemState::Claimed
+        );
+        assert_eq!(
+            claim_handoff_item(&pool, &item).await.unwrap().state,
+            HandoffItemState::AlreadyClaimed
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, String>("SELECT status FROM submissions WHERE id = 'handoff-id'")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            "handed_off"
+        );
+    }
+
+    #[tokio::test]
+    async fn handoff_can_claim_import_without_peertube_uuid() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "queued-handoff",
+            "https://example.com/queued",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        mark_imported(&pool, "queued.mp4").await.unwrap();
+
+        let result = claim_handoff_item(
+            &pool,
+            &HandoffItem {
+                peertube_uuid: None,
+                filename: Some("queued.mp4".into()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.state, HandoffItemState::Claimed);
+    }
+
+    #[tokio::test]
+    async fn handoff_does_not_match_different_peertube_uuid() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "wrong-uuid",
+            "https://example.com/wrong",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        mark_imported(&pool, "same-name.mp4").await.unwrap();
+        set_peertube_thumb(&pool, "same-name.mp4", "/thumb.jpg", "stored-uuid")
+            .await
+            .unwrap();
+
+        let result = claim_handoff_item(
+            &pool,
+            &HandoffItem {
+                peertube_uuid: Some("other-uuid".into()),
+                filename: Some("same-name.mp4".into()),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.state, HandoffItemState::NotFound);
+    }
+
+    #[tokio::test]
+    async fn handoff_state_is_visible_to_watcher_lookup() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "watcher-handoff",
+            "https://example.com/watcher",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        mark_imported(&pool, "watcher.mp4").await.unwrap();
+        claim_handoff_item(
+            &pool,
+            &HandoffItem {
+                peertube_uuid: None,
+                filename: Some("watcher.mp4".into()),
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(is_handed_off_by_filename(&pool, "watcher.mp4")
+            .await
+            .unwrap());
     }
 
     #[tokio::test]

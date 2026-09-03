@@ -186,7 +186,9 @@ async fn main() -> anyhow::Result<()> {
     // Session layer — backed by the existing SQLite DB so sessions survive restarts
     let session_store = SqliteStore::new((*pool).clone());
     session_store.migrate().await?;
-    let session_layer = SessionManagerLayer::new(session_store).with_same_site(SameSite::Lax);
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_same_site(SameSite::Lax)
+        .with_secure(config.cookie_secure);
 
     // Auth routes depend on configured mode
     let auth_router: Router<state::AppState> = match config.auth_mode {
@@ -226,6 +228,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
         .route("/api/check-submission", get(handlers::check_submission))
+        .route("/api/internal/cleanup", post(handlers::cleanup))
+        .route("/api/internal/handoff", post(handlers::handoff))
         .route("/api/submissions", get(handlers::list_submissions))
         .route(
             "/api/submissions/delete",

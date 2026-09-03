@@ -358,6 +358,7 @@ mod tests {
             database_url: "sqlite::memory:".into(),
             auth_mode: crate::config::AuthMode::Password,
             admin_password: None,
+            cookie_secure: false,
             oidc_issuer_url: None,
             oidc_client_id: None,
             oidc_client_secret: None,
@@ -374,6 +375,7 @@ mod tests {
             peertube_oidc_issuer_url: None,
             peertube_oidc_client_id: None,
             peertube_oidc_client_secret: None,
+            peertube_cleanup_token: None,
         });
 
         let state = AppState {
@@ -450,6 +452,7 @@ mod tests {
             database_url: "sqlite::memory:".into(),
             auth_mode: crate::config::AuthMode::Password,
             admin_password: None,
+            cookie_secure: false,
             oidc_issuer_url: None,
             oidc_client_id: None,
             oidc_client_secret: None,
@@ -466,6 +469,7 @@ mod tests {
             peertube_oidc_issuer_url: None,
             peertube_oidc_client_id: None,
             peertube_oidc_client_secret: None,
+            peertube_cleanup_token: None,
         });
 
         let state = AppState {

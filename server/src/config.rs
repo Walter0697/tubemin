@@ -15,6 +15,7 @@ pub struct Config {
     pub database_url: String,
     pub auth_mode: AuthMode,
     pub admin_password: Option<String>,
+    pub cookie_secure: bool,
     pub oidc_issuer_url: Option<String>,
     pub oidc_client_id: Option<String>,
     pub oidc_client_secret: Option<String>,
@@ -31,6 +32,7 @@ pub struct Config {
     pub peertube_oidc_issuer_url: Option<String>,
     pub peertube_oidc_client_id: Option<String>,
     pub peertube_oidc_client_secret: Option<String>,
+    pub peertube_cleanup_token: Option<String>,
 }
 
 impl Config {
@@ -50,6 +52,11 @@ impl Config {
                 "ADMIN_PASSWORD must be set when AUTH_MODE=password"
             ));
         }
+
+        let cookie_secure = std::env::var("COOKIE_SECURE")
+            .unwrap_or_else(|_| "true".into())
+            .parse::<bool>()
+            .map_err(|_| anyhow::anyhow!("COOKIE_SECURE must be true or false"))?;
 
         let oidc_issuer_url = std::env::var("OIDC_ISSUER_URL").ok();
         let oidc_client_id = std::env::var("OIDC_CLIENT_ID").ok();
@@ -93,6 +100,7 @@ impl Config {
             database_url: std::env::var("DATABASE_URL")?,
             auth_mode,
             admin_password,
+            cookie_secure,
             oidc_issuer_url,
             oidc_client_id,
             oidc_client_secret,
@@ -124,6 +132,9 @@ impl Config {
             peertube_oidc_issuer_url: std::env::var("PEERTUBE_OIDC_ISSUER_URL").ok(),
             peertube_oidc_client_id: std::env::var("PEERTUBE_OIDC_CLIENT_ID").ok(),
             peertube_oidc_client_secret: std::env::var("PEERTUBE_OIDC_CLIENT_SECRET").ok(),
+            peertube_cleanup_token: std::env::var("TUBEMIN_PEERTUBE_CLEANUP_TOKEN")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
         })
     }
 }
@@ -141,6 +152,7 @@ mod tests {
         std::env::remove_var("DOWNLOADS_DIR");
         std::env::remove_var("PEERTUBE_IMPORT_DIR");
         std::env::remove_var("PEERTUBE_VIDEO_PRIVACY");
+        std::env::remove_var("COOKIE_SECURE");
     }
 
     #[test]
@@ -188,6 +200,19 @@ mod tests {
         assert!(matches!(config.auth_mode, AuthMode::Password));
         assert_eq!(config.admin_password.as_deref(), Some("hunter2"));
         assert!(config.oidc_issuer_url.is_none());
+    }
+
+    #[test]
+    fn cookie_secure_can_be_disabled_for_http_testing() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_base_vars();
+        std::env::set_var("AUTH_MODE", "password");
+        std::env::set_var("ADMIN_PASSWORD", "123456");
+        std::env::set_var("COOKIE_SECURE", "false");
+
+        let config = Config::from_env().unwrap();
+
+        assert!(!config.cookie_secure);
     }
 
     #[test]

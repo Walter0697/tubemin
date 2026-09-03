@@ -3,8 +3,15 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
+
+static UPLOAD_LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+
+pub(crate) fn upload_lock() -> &'static Mutex<()> {
+    UPLOAD_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 pub struct PeerTubeConfig {
     pub url: String,
@@ -109,11 +116,15 @@ pub async fn retry_import_dir(
                     error!(error = %e, filename, "startup import recovery: failed to store PeerTube UUID");
                     continue;
                 }
-                if let Err(e) = tokio::fs::remove_file(&path).await {
-                    warn!(error = %e, filename, "startup import recovery: upload succeeded but could not remove import file");
-                } else {
-                    info!(filename, "startup import recovery: upload succeeded");
-                }
+                // Keep the original file in the shared import volume. Jellypik
+                // may migrate it directly to JellyFin after PeerTube accepts
+                // the upload, and will remove it only after JellyFin verifies
+                // the copied media. Removing it here makes the source
+                // unavailable to the downstream migration worker.
+                info!(
+                    filename,
+                    "startup import recovery: upload succeeded; retaining import file for downstream migration"
+                );
             }
             Err(e) => {
                 warn!(error = %e, filename, "startup import recovery: PeerTube upload still failed")
@@ -229,6 +240,10 @@ pub fn start(
             let subtitles = find_subtitle_sidecars(&path);
 
             let meta = crate::video_meta::load_for(&path);
+            // Serialize the move/upload boundary with the handoff endpoint.
+            // This prevents a handoff from deleting a file between this
+            // watcher move and its upload decision.
+            let _upload_guard = upload_lock().lock().await;
             let dest = handle_new_file(&path, &import_dir, &pool).await;
             // Remove from seen on success so a future file with the same name
             // (e.g. a re-download after the first was moved out) gets processed.
@@ -236,18 +251,28 @@ pub fn start(
                 seen.remove(&path);
             }
             if let (Some(dest), Some(pt)) = (dest, peertube.as_ref().as_ref()) {
+                let fname = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if crate::db::is_handed_off_by_filename(pool.as_ref(), fname)
+                    .await
+                    .unwrap_or(false)
+                {
+                    info!(filename = fname, "Skipping PeerTube upload for handed-off submission");
+                    let _ = tokio::fs::remove_file(&dest).await;
+                    for (_, sub_path) in &subtitles {
+                        let _ = tokio::fs::remove_file(sub_path).await;
+                    }
+                    continue;
+                }
                 let thumb_arg = thumbnail.as_ref().map(|(b, m)| (b.clone(), m.as_str()));
                 // Direct downloads have no .info.json so meta.title is None.
                 // Pull the stored title from DB so PeerTube and the dashboard show the same thing.
                 let mut meta = meta;
                 if meta.title.is_none() {
-                    let fname = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if let Ok(title) = crate::db::get_title_by_filename(pool.as_ref(), fname).await
                     {
                         meta.title = title;
                     }
                 }
-                let fname = dest.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 let (submitter_display, submitter_tag) =
                     crate::db::get_submitter_by_filename(pool.as_ref(), fname)
                         .await

@@ -213,6 +213,7 @@ docker compose up --build --pull never -d tubemin
 | `PEERTUBE_HOST` | no | — | PeerTube public hostname (for Host header) |
 | `PEERTUBE_USERNAME` | no | — | Bot account username |
 | `PEERTUBE_PASSWORD` | no | — | Bot account password |
+| `TUBEMIN_PEERTUBE_CLEANUP_TOKEN` | no | — | Dedicated bearer token for Jellypik's post-migration cleanup endpoint |
 | `PEERTUBE_ADMIN_EMAIL` | no | — | Used to provision bot account |
 | `PEERTUBE_ADMIN_USERNAME` | no | `root` | PeerTube admin username |
 | `PEERTUBE_ADMIN_PASSWORD` | no | — | PeerTube admin password (for bot provisioning) |

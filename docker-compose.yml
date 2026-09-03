@@ -19,7 +19,7 @@ services:
     restart: unless-stopped
     env_file: .env
     ports:
-      - "3000:3000"
+      - "7005:3000"
     volumes:
       - ./data/downloads:/downloads
       - ./data/peertube-import:/peertube-import
@@ -86,6 +86,51 @@ services:
     volumes:
       - peertube_redis_data:/data
 
+  jellyfin:
+    image: jellyfin/jellyfin:latest
+    restart: unless-stopped
+    ports:
+      - "18096:8096"
+    volumes:
+      - jellyfin_config:/config
+      - jellyfin_cache:/cache
+      - ./data/jellyfin/media:/media
+
+  jellypik:
+    build: ../jellypik
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      PEERTUBE_URL: http://peertube:9000
+      PEERTUBE_HOST: localhost:7006
+      TUBEMIN_URL: http://tubemin:3000
+      JELLYFIN_URL: http://jellyfin:8096
+      JELLYFIN_PUBLIC_URL: http://localhost:18096
+      JELLYFIN_API_KEY: ${JELLYFIN_API_KEY}
+      JELLYFIN_MEDIA_ROOT: /media
+      JELLYPIK_MEDIA_ROOT: /media
+      JELLYPIK_SOURCE_IMPORT_ROOT: /source-import
+      DATABASE_URL: sqlite:///data/jellypik.sqlite3
+      WCODEX_RUNNER_URL: http://wcodex.home/
+      JELLYPIK_DOMAIN: localhost:18080
+      JELLYPIK_LISTEN_ADDR: 0.0.0.0:8080
+      AUTH_MODE: password
+      ADMIN_PASSWORD: "123456"
+      JELLYPIK_COOKIE_SECURE: "false"
+    ports:
+      - "18080:8080"
+    volumes:
+      - ../jellypik/data:/data
+      - ./data/peertube-import:/source-import
+      - ./data/jellyfin/media:/media
+    depends_on:
+      peertube:
+        condition: service_started
+      tubemin:
+        condition: service_healthy
+      jellyfin:
+        condition: service_started
+
 volumes:
   tubemin_data:
   caddy_data:
@@ -93,3 +138,5 @@ volumes:
   peertube_data:
   peertube_db_data:
   peertube_redis_data:
+  jellyfin_config:
+  jellyfin_cache:
