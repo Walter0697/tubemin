@@ -153,6 +153,15 @@ button:disabled { background: var(--surface-2); color: var(--text-dim); cursor: 
   border: 1px solid var(--border);
   font-size: 11px;
 }
+.settings-download-link {
+  display: inline-block;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-decoration: none;
+}
 .btn-secondary:hover:not(:disabled) {
   background: var(--surface);
   color: var(--text);
