@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.0](https://github.com/Walter0697/tubemin/compare/v0.10.1...v0.11.0) (2026-09-18)
+
+
+### Features
+
+* add iOS Shortcut setup flow ([#29](https://github.com/Walter0697/tubemin/issues/29)) ([b2fb940](https://github.com/Walter0697/tubemin/commit/b2fb940d6eb3c0ac7c3138eb86f94ac2cebe5a42))
+
 ## [0.10.1](https://github.com/Walter0697/tubemin/compare/v0.10.0...v0.10.1) (2026-07-14)
 
 
