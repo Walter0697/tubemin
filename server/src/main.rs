@@ -243,6 +243,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/cleanup/videos", get(handlers::list_orphan_videos))
         .route("/api/cleanup/delete", post(handlers::delete_orphan_videos))
         .route("/settings", get(handlers::settings))
+        .route(
+            "/settings/shortcut/download",
+            get(handlers::download_shortcut),
+        )
         .route("/settings/keys/generate", post(handlers::generate_key))
         .route("/settings/keys/:id/revoke", post(handlers::revoke_key))
         .layer(session_layer)

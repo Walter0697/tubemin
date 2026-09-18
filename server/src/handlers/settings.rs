@@ -1,8 +1,9 @@
 use crate::{api_keys, oidc::RequireAuth, state::AppState};
 use axum::{
     extract::{Form, Path, Query, State},
-    response::{Html, Redirect},
+    response::{Html, IntoResponse, Redirect},
 };
+use axum::http::header;
 use minijinja::Environment;
 use serde::Deserialize;
 
@@ -19,6 +20,19 @@ pub struct CsrfForm {
 
 const CSRF_SESSION_KEY: &str = "settings_csrf";
 
+fn shortcut_download_response() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "application/octet-stream"),
+            (
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"tubemin-ios-shortcut.shortcut\"",
+            ),
+        ],
+        include_bytes!("../../static/tubemin-ios-shortcut.shortcut").as_slice(),
+    )
+}
+
 fn generate_csrf_token() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -28,6 +42,24 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    #[test]
+    fn shortcut_download_is_an_attachment() {
+        let response = shortcut_download_response().into_response();
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_DISPOSITION)
+                .and_then(|value| value.to_str().ok()),
+            Some("attachment; filename=\"tubemin-ios-shortcut.shortcut\"")
+        );
+    }
 }
 
 pub async fn settings(
@@ -78,6 +110,10 @@ pub async fn settings(
         tmpl.render(ctx)
             .unwrap_or_else(|e| format!("Template error: {}", e)),
     )
+}
+
+pub async fn download_shortcut(RequireAuth(_user): RequireAuth) -> impl IntoResponse {
+    shortcut_download_response()
 }
 
 pub async fn generate_key(
