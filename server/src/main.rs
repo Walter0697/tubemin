@@ -225,6 +225,10 @@ async fn main() -> anyhow::Result<()> {
             get(|| async { axum::Json(serde_json::json!({"status": "ok"})) }),
         )
         .route("/api/submit", post(handlers::submit))
+        .route(
+            "/api/shortcut/setup/:token",
+            get(handlers::setup).post(handlers::setup),
+        )
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
         .route("/api/check-submission", get(handlers::check_submission))
@@ -246,6 +250,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/settings/shortcut/download",
             get(handlers::download_shortcut),
+        )
+        .route(
+            "/settings/shortcut/setup",
+            post(handlers::generate_shortcut_setup),
         )
         .route("/settings/keys/generate", post(handlers::generate_key))
         .route("/settings/keys/:id/revoke", post(handlers::revoke_key))
