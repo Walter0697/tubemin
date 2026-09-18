@@ -48,6 +48,8 @@ services:
       DOWNLOAD_DIR: /downloads
       # Keep downloads simple: subtitles/auto-captions can trigger 429s on some YouTube videos.
       YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true}'
+      # Keep yt-dlp current so MeTube receives urgent YouTube extractor fixes.
+      YTDL_NIGHTLY_UPDATE_TIME: "04:00"
 
   peertube:
     image: chocobozzz/peertube:production-bookworm

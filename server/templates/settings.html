@@ -12,16 +12,17 @@
   <div class="page">
     <h1 class="page-title">Settings</h1>
 
-    {% if new_key %}
-    <div class="new-key">
-      <strong>New API key — copy now, shown once:</strong>
-      <div class="new-key-row">
-        <input class="new-key-input" id="new-key-value" type="text" value="{{ new_key }}" readonly>
-        <button class="btn-secondary" id="copy-key-btn" type="button">Copy</button>
-      </div>
-    </div>
-    {% endif %}
-
+    <p class="section-title">iOS Shortcut</p>
+    <form method="POST" action="/settings/shortcut/setup" style="margin-bottom: 16px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button type="submit" class="shortcut-generate-btn">
+        <svg class="shortcut-button-icon apple-icon" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M15.7 5.2c.8-1 1.4-2.4 1.2-3.7-1.2.1-2.6.8-3.4 1.8-.7.8-1.4 2.2-1.2 3.5 1.3.1 2.6-.6 3.4-1.6Zm3.4 7.3c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.2-2-3.9-2.1-1.7-.2-3.3 1-4.1 1s-2.1-1-3.5-1c-1.8 0-3.5 1.1-4.4 2.7-1.9 3.3-.5 8.2 1.3 10.9.9 1.3 1.9 2.8 3.3 2.7 1.3-.1 1.8-.9 3.4-.9s2 .9 3.4.9c1.4 0 2.3-1.3 3.2-2.7 1-1.4 1.4-2.8 1.4-2.9-.1 0-2.7-1.1-2.7-4.7Z"/>
+        </svg>
+        Generate Shortcut Setup
+      </button>
+    </form>
+    <p class="modal-msg">Generate a one-time setup link for the installed Shortcut. It creates a dedicated, revocable API key on your iPhone.</p>
     <p class="section-title">API Keys</p>
     <form method="POST" action="/settings/keys/generate" style="margin-bottom: 16px;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -65,11 +66,110 @@
       </table>
     </div>
   </div>
+  {% if shortcut_setup_url %}
+  <div class="modal-overlay" id="shortcut-setup-modal">
+    <div class="modal-box shortcut-modal-box" role="dialog" aria-modal="true" aria-labelledby="shortcut-setup-title">
+      <h2 class="shortcut-modal-title" id="shortcut-setup-title">Configure iOS Shortcut</h2>
+      <p class="modal-msg">Set up Tubemin on your iPhone in three quick steps.</p>
+      <div class="shortcut-steps">
+        <div class="shortcut-step">
+          <div class="shortcut-step-number">1</div>
+          <div class="shortcut-step-content">
+            <h3>Install the Shortcut</h3>
+            <p>Download the Shortcut file to your iPhone.</p>
+            <button class="shortcut-action" id="download-shortcut-setup" type="button">
+              <svg class="shortcut-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/></svg>
+              Download Shortcut
+            </button>
+          </div>
+        </div>
+        <div class="shortcut-step">
+          <div class="shortcut-step-number">2</div>
+          <div class="shortcut-step-content">
+            <h3><svg class="shortcut-inline-icon files-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h4l2 2h5A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5v-11Z"/><path d="M4.5 9h15"/></svg>Find the Shortcut file</h3>
+            <p class="shortcut-step-instruction">Open the <strong>Files</strong> app, find <span class="shortcut-file-name">Send To Tubemin.shortcut</span> in Downloads, and tap it to add the Shortcut to your Shortcuts app.</p>
+          </div>
+        </div>
+        <div class="shortcut-step">
+          <div class="shortcut-step-number">3</div>
+          <div class="shortcut-step-content">
+            <h3>Connect to Tubemin</h3>
+            <p class="shortcut-step-instruction"><strong>After adding the file, tap the button below.</strong> It opens the installed Shortcut and saves your private Tubemin connection on this iPhone.</p>
+            <button class="shortcut-action" id="configure-shortcut-btn" data-setup-url="{{ shortcut_setup_url }}" type="button">
+              <svg class="shortcut-button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v4m0 10v4M3 12h4m10 0h4M5.6 5.6l2.8 2.8m7.2 7.2 2.8 2.8m0-12.8-2.8 2.8m-7.2 7.2-2.8 2.8M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z"/></svg>
+              Configure Shortcut
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+  {% if new_key %}
+  <div class="modal-overlay" id="shortcut-key-modal">
+    <div class="modal-box shortcut-modal-box" role="dialog" aria-modal="true" aria-labelledby="shortcut-modal-title">
+      <h2 class="shortcut-modal-title" id="shortcut-modal-title">iOS Shortcut ready</h2>
+      <p class="modal-msg">A dedicated API key was generated. Copy it into the Shortcut's <code>X-API-Key</code> header, then download the Shortcut.</p>
+      <div class="new-key-row">
+        <input class="new-key-input" id="new-key-value" type="text" value="{{ new_key }}" readonly>
+        <button class="btn-secondary" id="copy-key-btn" type="button">Copy</button>
+      </div>
+      <div class="modal-actions shortcut-modal-actions">
+        <button class="btn-secondary" id="close-shortcut-modal" type="button">Close</button>
+        <button class="btn-secondary" id="download-shortcut-btn" type="button">Download iOS Shortcut</button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   <script src="/static/app.js?v={{ asset_version }}"></script>
+  {% if shortcut_setup_url %}
+  <script>
+    const shortcutSetupModal = document.getElementById('shortcut-setup-modal');
+    const configureShortcutBtn = document.getElementById('configure-shortcut-btn');
+    const downloadShortcutSetup = document.getElementById('download-shortcut-setup');
+    shortcutSetupModal.addEventListener('click', (event) => {
+      if (event.target === shortcutSetupModal) shortcutSetupModal.hidden = true;
+    });
+    configureShortcutBtn.addEventListener('click', () => {
+      const setupUrl = configureShortcutBtn.dataset.setupUrl;
+      const launchUrl = `shortcuts://run-shortcut?name=${encodeURIComponent('Send To Tubemin')}&input=text&text=${encodeURIComponent(setupUrl)}`;
+      window.location.href = launchUrl;
+    });
+    downloadShortcutSetup.addEventListener('click', async () => {
+      try {
+        const response = await fetch('/settings/shortcut/download', { credentials: 'same-origin' });
+        if (!response.ok) throw new Error(`Download failed (${response.status})`);
+        const file = new File(
+          [await response.blob()],
+          'Send To Tubemin.shortcut',
+          { type: 'application/octet-stream' },
+        );
+        if (navigator.share && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ title: 'Tubemin Shortcut', files: [file] });
+        } else {
+          const objectUrl = URL.createObjectURL(file);
+          const link = document.createElement('a');
+          link.href = objectUrl;
+          link.download = file.name;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        }
+      } catch (error) {
+        if (error?.name !== 'AbortError') alert(error.message || 'Could not download Shortcut.');
+      }
+    });
+  </script>
+  {% endif %}
   {% if new_key %}
   <script>
+    const shortcutKeyModal = document.getElementById('shortcut-key-modal');
     const copyBtn = document.getElementById('copy-key-btn');
     const keyInput = document.getElementById('new-key-value');
+    const closeShortcutModal = document.getElementById('close-shortcut-modal');
+    closeShortcutModal.addEventListener('click', () => { shortcutKeyModal.hidden = true; });
+    shortcutKeyModal.addEventListener('click', (event) => {
+      if (event.target === shortcutKeyModal) shortcutKeyModal.hidden = true;
+    });
     copyBtn.addEventListener('click', () => {
       navigator.clipboard.writeText(keyInput.value).then(() => {
         copyBtn.textContent = 'Copied!';
@@ -77,6 +177,38 @@
       });
     });
     keyInput.addEventListener('focus', () => keyInput.select());
+
+    const downloadShortcutBtn = document.getElementById('download-shortcut-btn');
+    downloadShortcutBtn.addEventListener('click', async (event) => {
+      event.preventDefault();
+      const originalText = downloadShortcutBtn.textContent;
+      downloadShortcutBtn.textContent = 'Preparing…';
+      downloadShortcutBtn.style.pointerEvents = 'none';
+      try {
+        const response = await fetch('/settings/shortcut/download', { credentials: 'same-origin' });
+        if (!response.ok) throw new Error(`Download failed (${response.status})`);
+        const file = new File(
+          [await response.blob()],
+          'Send To Tubemin.shortcut',
+          { type: 'application/octet-stream' },
+        );
+        if (navigator.share && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ title: 'Tubemin Shortcut', files: [file] });
+        } else {
+          const objectUrl = URL.createObjectURL(file);
+          const link = document.createElement('a');
+          link.href = objectUrl;
+          link.download = file.name;
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+        }
+      } catch (error) {
+        if (error?.name !== 'AbortError') alert(error.message || 'Could not download Shortcut.');
+      } finally {
+        downloadShortcutBtn.textContent = originalText;
+        downloadShortcutBtn.style.pointerEvents = '';
+      }
+    });
   </script>
   {% endif %}
 </body>
