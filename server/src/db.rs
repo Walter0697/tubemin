@@ -373,6 +373,34 @@ pub async fn set_filename_by_url(
     Ok(())
 }
 
+/// MeTube only records the final merged filename after a successful download.
+/// An active MeTube submission without a matching filename means filesystem
+/// events must wait instead of being treated as completed media.
+pub async fn file_ready_for_import(
+    pool: &SqlitePool,
+    filename: &str,
+) -> Result<bool, sqlx::Error> {
+    let row: Option<(i64, String)> = sqlx::query_as(
+        "SELECT is_direct, status FROM submissions
+         WHERE filename = ? ORDER BY submitted_at DESC LIMIT 1",
+    )
+    .bind(filename)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some((is_direct, status)) = row {
+        return Ok(is_direct != 0 || matches!(status.as_str(), "pending" | "downloading"));
+    }
+
+    let active_metube: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM submissions
+         WHERE is_direct = 0 AND status IN ('pending', 'downloading')",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(active_metube == 0)
+}
+
 pub async fn mark_imported(pool: &SqlitePool, filename: &str) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     // Prefer the submission whose MeTube-reported filename matches this file
@@ -1033,6 +1061,22 @@ mod tests {
             .unwrap();
         let (_, filename) = status_of(&pool, "a").await;
         assert_eq!(filename.as_deref(), Some("a.webm"));
+    }
+
+    #[tokio::test]
+    async fn metube_file_is_not_ready_until_filename_is_recorded() {
+        let pool = test_pool().await;
+        create_basic(&pool, "metube", "https://example.com/metube").await;
+        mark_downloading(&pool, "https://example.com/metube")
+            .await
+            .unwrap();
+
+        assert!(!file_ready_for_import(&pool, "video.webm").await.unwrap());
+
+        set_filename_by_url(&pool, "https://example.com/metube", "video.webm")
+            .await
+            .unwrap();
+        assert!(file_ready_for_import(&pool, "video.webm").await.unwrap());
     }
 
     // Regression: downloads finishing out of submission order must not swap rows.

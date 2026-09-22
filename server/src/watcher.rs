@@ -42,6 +42,10 @@ pub async fn retry_import_dir(
         if !path.is_file() || !is_video_file(&path) {
             continue;
         }
+        if !has_audio_and_video(&path).await {
+            warn!(path = %path.display(), "startup import recovery: skipping file without audio and video streams");
+            continue;
+        }
         let Some(filename) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
@@ -218,6 +222,22 @@ pub fn start(
                 || !is_video_file(&path)
                 || seen.contains(&path)
             {
+                continue;
+            }
+            let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            match crate::db::file_ready_for_import(&pool, filename).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    info!(path = %path.display(), "waiting for MeTube successful completion before importing");
+                    continue;
+                }
+                Err(e) => {
+                    error!(error = %e, path = %path.display(), "could not determine MeTube completion state");
+                    continue;
+                }
+            }
+            if !has_audio_and_video(&path).await {
+                warn!(path = %path.display(), "skipping media without both audio and video streams");
                 continue;
             }
             seen.insert(path.clone());
@@ -426,11 +446,52 @@ pub(crate) fn is_temp_file(path: &std::path::Path) -> bool {
         .extension()
         .and_then(|e| e.to_str())
     {
-        if stem_ext.starts_with('f') && stem_ext[1..].chars().all(|c| c.is_ascii_digit()) {
+        if stem_ext.starts_with('f')
+            && stem_ext[1..]
+                .split('-')
+                .all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+        {
             return true;
         }
     }
     false
+}
+
+fn has_audio_and_video_streams(output: &str) -> bool {
+    let mut has_video = false;
+    let mut has_audio = false;
+    for stream in output.lines().map(str::trim) {
+        has_video |= stream == "video";
+        has_audio |= stream == "audio";
+    }
+    has_video && has_audio
+}
+
+async fn has_audio_and_video(path: &std::path::Path) -> bool {
+    let output = match tokio::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_type",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(path)
+        .output()
+        .await
+    {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            warn!(path = %path.display(), status = ?output.status, "ffprobe rejected media file");
+            return false;
+        }
+        Err(e) => {
+            warn!(error = %e, "ffprobe unavailable; refusing to import media");
+            return false;
+        }
+    };
+    has_audio_and_video_streams(&String::from_utf8_lossy(&output.stdout))
 }
 
 pub(crate) async fn handle_new_file(
@@ -444,6 +505,13 @@ pub(crate) async fn handle_new_file(
     // PeerTube watched folder, even if this helper is called by a future
     // code path or a queued event races with another file operation.
     if !path.is_file() || is_temp_file(path) || !is_video_file(path) {
+        return None;
+    }
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if !crate::db::file_ready_for_import(pool, filename)
+        .await
+        .unwrap_or(false)
+    {
         return None;
     }
 
@@ -499,6 +567,9 @@ mod tests {
             "/downloads/video.f251.webm"
         )));
         assert!(is_temp_file(std::path::Path::new(
+            "/downloads/video.f251-20.webm"
+        )));
+        assert!(is_temp_file(std::path::Path::new(
             "/downloads/video.f399.mp4"
         )));
         assert!(is_temp_file(std::path::Path::new(
@@ -510,6 +581,13 @@ mod tests {
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mp4")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.mkv")));
         assert!(!is_temp_file(std::path::Path::new("/downloads/video.webm")));
+    }
+
+    #[test]
+    fn stream_probe_requires_audio_and_video() {
+        assert!(has_audio_and_video_streams("video\naudio\n"));
+        assert!(!has_audio_and_video_streams("video\n"));
+        assert!(!has_audio_and_video_streams("audio\n"));
     }
 
     #[test]
