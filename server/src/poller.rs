@@ -7,6 +7,12 @@ use tracing::{error, warn};
 
 const MAX_DOWNLOAD_RETRIES: i64 = 3;
 
+fn is_permanent_error(error: Option<&str>) -> bool {
+    error
+        .map(|message| message.to_ascii_lowercase().contains("conversion failed"))
+        .unwrap_or(false)
+}
+
 pub fn start(
     metube_url: String,
     pool: Arc<SqlitePool>,
@@ -72,6 +78,14 @@ pub fn start(
                                 error!(error = %e, url = %item.url, "db error updating title");
                             }
                         }
+                        if is_permanent_error(item.error.as_deref()) {
+                            warn!(
+                                url = %item.url,
+                                error = ?item.error,
+                                "not retrying permanent MeTube conversion failure"
+                            );
+                            continue;
+                        }
                         match crate::db::claim_metube_retry(&pool, &item.url, MAX_DOWNLOAD_RETRIES)
                             .await
                         {
@@ -136,4 +150,17 @@ pub fn start(
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_permanent_error;
+
+    #[test]
+    fn conversion_failures_are_not_retryable() {
+        assert!(is_permanent_error(Some("Conversion failed!")));
+        assert!(is_permanent_error(Some("ffmpeg: CONVERSION FAILED")));
+        assert!(!is_permanent_error(Some("HTTP Error 429: Too Many Requests")));
+        assert!(!is_permanent_error(None));
+    }
 }

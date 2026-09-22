@@ -19,6 +19,7 @@ pub struct QueueItem {
     pub url: String,
     pub title: Option<String>,
     pub percent: Option<f64>,
+    pub error: Option<String>,
 }
 
 pub struct FinishedFile {
@@ -49,10 +50,15 @@ fn extract_items(arr: Option<&serde_json::Value>, error_filter: bool) -> Vec<Que
                     let url = item["url"].as_str()?.to_string();
                     let title = item["title"].as_str().map(str::to_string);
                     let percent = item["percent"].as_f64();
+                    let error = item["error"]
+                        .as_str()
+                        .or_else(|| item["message"].as_str())
+                        .map(str::to_string);
                     Some(QueueItem {
                         url,
                         title,
                         percent,
+                        error,
                     })
                 })
                 .collect()
@@ -175,6 +181,27 @@ mod tests {
         assert_eq!(state.finished.len(), 1);
         assert_eq!(state.finished[0].url, "https://example.com/ok");
         assert_eq!(state.finished[0].filename, "ok.webm");
+    }
+
+    #[tokio::test]
+    async fn preserves_permanent_error_details() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/history"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "queue": [],
+                "pending": [],
+                "done": [{
+                    "url": "https://example.com/bad",
+                    "status": "error",
+                    "error": "Conversion failed!"
+                }]
+            })))
+            .mount(&server)
+            .await;
+
+        let state = get_queue_state(&server.uri()).await.unwrap();
+        assert_eq!(state.errored[0].error.as_deref(), Some("Conversion failed!"));
     }
 
     #[tokio::test]

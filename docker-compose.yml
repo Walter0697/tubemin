@@ -47,7 +47,7 @@ services:
     environment:
       DOWNLOAD_DIR: /downloads
       # Keep downloads simple: subtitles/auto-captions can trigger 429s on some YouTube videos.
-      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true}'
+      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true, "format": "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[ext=mp4][height<=1080]"}'
       # Keep yt-dlp current so MeTube receives urgent YouTube extractor fixes.
       YTDL_NIGHTLY_UPDATE_TIME: "04:00"
 
