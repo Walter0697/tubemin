@@ -110,7 +110,13 @@ pub async fn submit(metube_url: &str, url: &str) -> Result<(), MeTubeError> {
         .json(&json!({
             "url": url,
             "folder": "/downloads",
-            "auto_start": true
+            "auto_start": true,
+            "ytdl_options_overrides": {
+                "format": "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[ext=mp4][height<=1080]",
+                "merge_output_format": "mp4",
+                "writesubtitles": false,
+                "writeautomaticsub": false
+            }
         }))
         .send()
         .await?;
@@ -134,7 +140,17 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .and(path("/add"))
-            .and(body_json(json!({"url": "https://example.com/video", "folder": "/downloads", "auto_start": true})))
+            .and(body_json(json!({
+                "url": "https://example.com/video",
+                "folder": "/downloads",
+                "auto_start": true,
+                "ytdl_options_overrides": {
+                    "format": "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[ext=mp4][height<=1080]",
+                    "merge_output_format": "mp4",
+                    "writesubtitles": false,
+                    "writeautomaticsub": false
+                }
+            })))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"status": "ok"})))
             .mount(&server)
             .await;
