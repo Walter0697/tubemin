@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/Walter0697/tubemin/compare/v0.11.0...v0.11.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* guard watcher against incomplete media ([a5e5d7e](https://github.com/Walter0697/tubemin/commit/a5e5d7ef00ca763eb39eeaa1f601c6c2196ecca8))
+
 ## [0.11.0](https://github.com/Walter0697/tubemin/compare/v0.10.1...v0.11.0) (2026-09-18)
 
 
