@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.2](https://github.com/Walter0697/tubemin/compare/v0.11.1...v0.11.2) (2026-09-22)
+
+
+### Bug Fixes
+
+* constrain metube formats and retries ([88274cd](https://github.com/Walter0697/tubemin/commit/88274cdb8ed762dabfb64c3bb6028cef69665415))
+
 ## [0.11.1](https://github.com/Walter0697/tubemin/compare/v0.11.0...v0.11.1) (2026-09-22)
 
 
