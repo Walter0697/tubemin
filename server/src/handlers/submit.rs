@@ -73,6 +73,17 @@ struct Submitter {
     owner_display: Option<String>,
 }
 
+fn source_for_api_key(label: Option<&str>) -> &'static str {
+    if label
+        .map(str::trim)
+        .is_some_and(|label| label.eq_ignore_ascii_case("ios shortcut") || label.to_ascii_lowercase().starts_with("ios shortcut "))
+    {
+        "shortcut"
+    } else {
+        "extension"
+    }
+}
+
 pub async fn submit(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -114,7 +125,7 @@ pub async fn submit(
         owner_sub: verified_key.owner_sub,
         owner_display: verified_key.owner_display,
     };
-    enqueue(state, body, submitter, "extension").await
+    enqueue(state, body, submitter, source_for_api_key(verified_key.label.as_deref())).await
 }
 
 #[derive(Deserialize)]
@@ -412,6 +423,41 @@ mod tests {
         resp.assert_status_ok();
         let body: serde_json::Value = resp.json();
         assert_eq!(body["status"], "queued");
+    }
+
+    #[tokio::test]
+    async fn shortcut_api_key_records_shortcut_source() {
+        let (server, _api_key, _mock, pool) = make_app().await;
+        let shortcut_key = api_keys::generate(
+            &pool,
+            Some("iOS Shortcut"),
+            api_keys::ApiKeyOwner {
+                sub: Some("test-user"),
+                display: "test-user",
+            },
+        )
+        .await
+        .unwrap();
+        let url = "https://www.youtube.com/watch?v=shortcut-source-test";
+        let response = server
+            .post("/api/submit")
+            .add_header("X-API-Key", &shortcut_key)
+            .json(&json!({"url": url}))
+            .await;
+        response.assert_status_ok();
+        let submission = db::get_submission_by_url(&pool, url)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(submission.source.as_deref(), Some("shortcut"));
+    }
+
+    #[test]
+    fn ios_shortcut_keys_use_shortcut_source() {
+        assert_eq!(source_for_api_key(Some("iOS Shortcut")), "shortcut");
+        assert_eq!(source_for_api_key(Some("iOS Shortcut — Walter")), "shortcut");
+        assert_eq!(source_for_api_key(Some("browser extension")), "extension");
+        assert_eq!(source_for_api_key(None), "extension");
     }
 
     #[tokio::test]

@@ -1,9 +1,9 @@
 use crate::{api_keys, oidc::RequireAuth, state::AppState};
 use axum::{
     extract::{Form, Path, Query, State},
+    http::{header, HeaderMap},
     response::{Html, IntoResponse, Redirect},
 };
-use axum::http::header;
 use minijinja::Environment;
 use serde::Deserialize;
 
@@ -19,6 +19,7 @@ pub struct CsrfForm {
 }
 
 const CSRF_SESSION_KEY: &str = "settings_csrf";
+const SHORTCUT_SETUP_URL_SESSION_KEY: &str = "shortcut_setup_url";
 
 fn shortcut_download_response() -> impl IntoResponse {
     (
@@ -26,10 +27,10 @@ fn shortcut_download_response() -> impl IntoResponse {
             (header::CONTENT_TYPE, "application/octet-stream"),
             (
                 header::CONTENT_DISPOSITION,
-                "attachment; filename=\"tubemin-ios-shortcut.shortcut\"",
+                "attachment; filename=\"Send To Tubemin.shortcut\"",
             ),
         ],
-        include_bytes!("../../static/tubemin-ios-shortcut.shortcut").as_slice(),
+        include_bytes!("../../assets/tubemin-ios-shortcut.shortcut").as_slice(),
     )
 }
 
@@ -42,6 +43,24 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string)
+}
+
+fn request_origin(headers: &HeaderMap) -> Option<String> {
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("http");
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get("host"))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    Some(format!("{scheme}://{host}"))
 }
 
 #[cfg(test)]
@@ -57,7 +76,7 @@ mod tests {
                 .headers()
                 .get(axum::http::header::CONTENT_DISPOSITION)
                 .and_then(|value| value.to_str().ok()),
-            Some("attachment; filename=\"tubemin-ios-shortcut.shortcut\"")
+            Some("attachment; filename=\"Send To Tubemin.shortcut\"")
         );
     }
 }
@@ -77,6 +96,11 @@ pub async fn settings(
             t
         }
     };
+    let shortcut_setup_url: Option<String> = session
+        .remove(SHORTCUT_SETUP_URL_SESSION_KEY)
+        .await
+        .ok()
+        .flatten();
 
     let keys = api_keys::list_by_owner(&state.pool, user.stable_subject(), user.display_name())
         .await
@@ -96,6 +120,7 @@ pub async fn settings(
         app_version => env!("CARGO_PKG_VERSION"),
         asset_version => crate::ASSET_VERSION,
         new_key => query.new_key,
+        shortcut_setup_url => shortcut_setup_url,
         csrf_token => csrf_token,
         api_keys => keys.iter().map(|k| minijinja::context! {
             id => k.id,
@@ -141,6 +166,43 @@ pub async fn generate_key(
         Ok(plaintext) => Redirect::to(&format!("/settings?new_key={}", plaintext)),
         Err(_) => Redirect::to("/settings"),
     }
+}
+
+pub async fn generate_shortcut_setup(
+    RequireAuth(user): RequireAuth,
+    State(state): State<AppState>,
+    session: tower_sessions::Session,
+    headers: HeaderMap,
+    Form(form): Form<CsrfForm>,
+) -> Redirect {
+    let stored: Option<String> = session.get(CSRF_SESSION_KEY).await.ok().flatten();
+    if stored.as_deref() != Some(&form.csrf_token) {
+        return Redirect::to("/settings");
+    }
+    let Some(origin) = request_origin(&headers) else {
+        return Redirect::to("/settings");
+    };
+    let token = match api_keys::create_shortcut_setup_token(
+        &state.pool,
+        api_keys::ApiKeyOwner {
+            sub: user.stable_subject(),
+            display: user.display_name(),
+        },
+    )
+    .await
+    {
+        Ok(token) => token,
+        Err(_) => return Redirect::to("/settings"),
+    };
+    let setup_url = format!("{origin}/api/shortcut/setup/{token}");
+    if session
+        .insert(SHORTCUT_SETUP_URL_SESSION_KEY, setup_url)
+        .await
+        .is_err()
+    {
+        return Redirect::to("/settings");
+    }
+    Redirect::to("/settings")
 }
 
 pub async fn revoke_key(
