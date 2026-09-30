@@ -242,6 +242,16 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
         .route("/api/check-submission", get(handlers::check_submission))
+        .route("/api/service/catalog", get(handlers::service_catalog))
+        .route("/api/service/videos/:uuid", get(handlers::service_video))
+        .route(
+            "/api/service/videos/:uuid/media",
+            get(handlers::service_media),
+        )
+        .route(
+            "/api/service/videos/:uuid/thumbnail",
+            get(handlers::service_thumbnail),
+        )
         .route("/api/internal/cleanup", post(handlers::cleanup))
         .route("/api/internal/handoff", post(handlers::handoff))
         .route("/api/submissions", get(handlers::list_submissions))
