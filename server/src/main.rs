@@ -271,6 +271,8 @@ async fn main() -> anyhow::Result<()> {
         .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
+        .route("/transfers", get(handlers::transfers_page))
+        .route("/api/transfers", get(handlers::transfers_api))
         .route("/cleanup", get(handlers::cleanup_page))
         .route("/api/cleanup/videos", get(handlers::list_orphan_videos))
         .route("/api/cleanup/delete", post(handlers::delete_orphan_videos))

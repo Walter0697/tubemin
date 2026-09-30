@@ -9,6 +9,7 @@ pub mod service_api;
 pub mod shortcut;
 pub mod submissions;
 pub mod submit;
+pub mod transfers;
 pub mod validate;
 
 pub use check_submission::check_submission;
@@ -27,4 +28,5 @@ pub use service_api::{
 pub use shortcut::setup;
 pub use submissions::{delete_submissions, list_submissions};
 pub use submit::{submit, submit_web};
+pub use transfers::{transfers_api, transfers_page};
 pub use validate::validate;

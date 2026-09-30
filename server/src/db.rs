@@ -1,4 +1,5 @@
 use chrono::Utc;
+use serde::Serialize;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use std::str::FromStr;
 
@@ -41,7 +42,7 @@ pub struct ServiceAccountRow {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct TransferRow {
     pub id: String,
     pub submission_id: String,
