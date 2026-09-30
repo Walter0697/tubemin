@@ -23,6 +23,7 @@ services:
     volumes:
       - ./data/downloads:/downloads
       - ./data/peertube-import:/peertube-import
+      - ./service-accounts:/etc/tubemin/service-accounts:ro
       - tubemin_data:/data
     depends_on:
       metube:

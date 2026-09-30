@@ -190,7 +190,8 @@ pub async fn set_submission_status(
     status: &str,
 ) -> Result<bool, sqlx::Error> {
     let result = sqlx::query(
-        "UPDATE submissions SET status = ?, updated_at = ? WHERE peertube_uuid = ?",
+        "UPDATE submissions SET status = ?, updated_at = ?
+         WHERE id = (SELECT id FROM submissions WHERE peertube_uuid = ? ORDER BY submitted_at DESC LIMIT 1)",
     )
     .bind(status)
     .bind(Utc::now().to_rfc3339())

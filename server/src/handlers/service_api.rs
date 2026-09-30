@@ -116,6 +116,23 @@ fn submission_map(submissions: Vec<Submission>) -> HashMap<String, Submission> {
         .collect()
 }
 
+async fn ensure_owned_video(
+    state: &AppState,
+    uuid: &str,
+) -> Result<(), Response> {
+    let (url, host, username, password) = peertube_credentials(state)?;
+    let videos = peertube::list_account_videos(url, host, username, password, None)
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = %error, uuid = %uuid, "service ownership lookup failed");
+            service_error(StatusCode::BAD_GATEWAY, "PeerTube ownership lookup failed")
+        })?;
+    if !videos.iter().any(|video| video.uuid == uuid) {
+        return Err(service_error(StatusCode::NOT_FOUND, "video not found"));
+    }
+    Ok(())
+}
+
 pub async fn service_catalog(
     RequireServiceAccount { principal }: RequireServiceAccount,
     State(state): State<AppState>,
@@ -172,10 +189,6 @@ pub async fn service_video(
     {
         return response;
     }
-    let (url, host, username, password) = match peertube_credentials(&state) {
-        Ok(credentials) => credentials,
-        Err(response) => return response,
-    };
     let submissions = match db::active_catalog_submissions(&state.pool).await {
         Ok(submissions) => submissions,
         Err(error) => {
@@ -185,6 +198,13 @@ pub async fn service_video(
     };
     let Some(submission) = submissions.into_iter().find(|item| item.peertube_uuid.as_deref() == Some(uuid.as_str())) else {
         return service_error(StatusCode::NOT_FOUND, "video not found");
+    };
+    if let Err(response) = ensure_owned_video(&state, &uuid).await {
+        return response;
+    }
+    let (url, host, username, password) = match peertube_credentials(&state) {
+        Ok(credentials) => credentials,
+        Err(response) => return response,
     };
     let detail = match peertube::get_video(url, host, username, password, &uuid).await {
         Ok(detail) => detail,
@@ -226,6 +246,13 @@ pub async fn service_media(
     let Some(submission) = submissions.into_iter().find(|item| item.peertube_uuid.as_deref() == Some(uuid.as_str())) else {
         return service_error(StatusCode::NOT_FOUND, "video not found");
     };
+    if let Err(response) = ensure_owned_video(&state, &uuid).await {
+        return response;
+    }
+    let (url, host, username, password) = match peertube_credentials(&state) {
+        Ok(credentials) => credentials,
+        Err(response) => return response,
+    };
     if let Some(path) = local_source_path(&state, submission.filename.as_deref()) {
         let filename = path.file_name().and_then(|name| name.to_str()).unwrap_or("video");
         let file = match tokio::fs::File::open(&path).await {
@@ -242,10 +269,6 @@ pub async fn service_media(
         }
         return response;
     }
-    let (url, host, username, password) = match peertube_credentials(&state) {
-        Ok(credentials) => credentials,
-        Err(response) => return response,
-    };
     let upstream = match peertube::stream_original(url, host, username, password, &uuid).await {
         Ok(response) => response,
         Err(error) => {
@@ -285,6 +308,9 @@ pub async fn service_thumbnail(
             tracing::error!(error = %error, "service thumbnail database lookup failed");
             return service_error(StatusCode::INTERNAL_SERVER_ERROR, "thumbnail lookup failed");
         }
+    }
+    if let Err(response) = ensure_owned_video(&state, &uuid).await {
+        return response;
     }
     let (url, host, username, password) = match peertube_credentials(&state) {
         Ok(credentials) => credentials,
@@ -355,6 +381,16 @@ pub async fn service_complete(
         Ok(credentials) => credentials,
         Err(response) => return response,
     };
+    let owned = match peertube::list_account_videos(url, host, username, password, None).await {
+        Ok(videos) => videos.iter().any(|video| video.uuid == uuid),
+        Err(error) => {
+            tracing::warn!(error = %error, uuid = %uuid, "service completion ownership lookup failed");
+            return service_error(StatusCode::BAD_GATEWAY, "PeerTube ownership lookup failed");
+        }
+    };
+    if !owned {
+        return service_error(StatusCode::NOT_FOUND, "video not found");
+    }
     let existing = match db::get_transfer_for_video(&state.pool, &uuid, &principal.id).await {
         Ok(existing) => existing,
         Err(error) => {
