@@ -28,6 +28,42 @@ pub struct Submission {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ServiceAccountRow {
+    pub id: String,
+    pub name: String,
+    pub token_hash: String,
+    pub scopes_json: String,
+    pub enabled: bool,
+    pub managed_by: String,
+    pub last_used_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct TransferRow {
+    pub id: String,
+    pub submission_id: String,
+    pub peertube_uuid: String,
+    pub service_account_id: String,
+    pub consumer: String,
+    pub destination: String,
+    pub destination_ref: Option<String>,
+    pub source_title: Option<String>,
+    pub source_url: Option<String>,
+    pub state: String,
+    pub output_size: Option<i64>,
+    pub source_cleanup_state: String,
+    pub peertube_delete_state: String,
+    pub error: Option<String>,
+    pub retry_count: i64,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub deleted_at: Option<String>,
+    pub updated_at: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandoffItem {
     pub peertube_uuid: Option<String>,
@@ -52,6 +88,176 @@ pub async fn init(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let pool = SqlitePool::connect_with(opts).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
     Ok(pool)
+}
+
+pub async fn upsert_service_account(
+    pool: &SqlitePool,
+    account: &ServiceAccountRow,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO service_accounts
+            (id, name, token_hash, scopes_json, enabled, managed_by, last_used_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET
+            token_hash = excluded.token_hash,
+            scopes_json = excluded.scopes_json,
+            enabled = excluded.enabled,
+            managed_by = excluded.managed_by,
+            updated_at = excluded.updated_at",
+    )
+    .bind(&account.id)
+    .bind(&account.name)
+    .bind(&account.token_hash)
+    .bind(&account.scopes_json)
+    .bind(account.enabled)
+    .bind(&account.managed_by)
+    .bind(&account.last_used_at)
+    .bind(&account.created_at)
+    .bind(&account.updated_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn find_service_account_by_name(
+    pool: &SqlitePool,
+    name: &str,
+) -> Result<Option<ServiceAccountRow>, sqlx::Error> {
+    sqlx::query_as::<_, ServiceAccountRow>(
+        "SELECT id, name, token_hash, scopes_json, enabled, managed_by,
+                last_used_at, created_at, updated_at
+         FROM service_accounts WHERE name = ?",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn list_service_accounts(
+    pool: &SqlitePool,
+) -> Result<Vec<ServiceAccountRow>, sqlx::Error> {
+    sqlx::query_as::<_, ServiceAccountRow>(
+        "SELECT id, name, token_hash, scopes_json, enabled, managed_by,
+                last_used_at, created_at, updated_at
+         FROM service_accounts ORDER BY name",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn touch_service_account(
+    pool: &SqlitePool,
+    id: &str,
+    now: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE service_accounts SET last_used_at = ?, updated_at = ? WHERE id = ?")
+        .bind(now)
+        .bind(now)
+        .bind(id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn active_catalog_submissions(
+    pool: &SqlitePool,
+) -> Result<Vec<Submission>, sqlx::Error> {
+    sqlx::query_as::<_, Submission>(
+        "SELECT * FROM submissions
+         WHERE peertube_uuid IS NOT NULL AND status != 'deleted'
+         ORDER BY submitted_at DESC",
+    )
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn create_transfer(
+    pool: &SqlitePool,
+    transfer: &TransferRow,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO transfers
+            (id, submission_id, peertube_uuid, service_account_id, consumer,
+             destination, destination_ref, source_title, source_url, state,
+             output_size, source_cleanup_state, peertube_delete_state, error,
+             retry_count, created_at, completed_at, deleted_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(&transfer.id)
+    .bind(&transfer.submission_id)
+    .bind(&transfer.peertube_uuid)
+    .bind(&transfer.service_account_id)
+    .bind(&transfer.consumer)
+    .bind(&transfer.destination)
+    .bind(&transfer.destination_ref)
+    .bind(&transfer.source_title)
+    .bind(&transfer.source_url)
+    .bind(&transfer.state)
+    .bind(transfer.output_size)
+    .bind(&transfer.source_cleanup_state)
+    .bind(&transfer.peertube_delete_state)
+    .bind(&transfer.error)
+    .bind(transfer.retry_count)
+    .bind(&transfer.created_at)
+    .bind(&transfer.completed_at)
+    .bind(&transfer.deleted_at)
+    .bind(&transfer.updated_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn get_transfer_for_video(
+    pool: &SqlitePool,
+    peertube_uuid: &str,
+    service_account_id: &str,
+) -> Result<Option<TransferRow>, sqlx::Error> {
+    sqlx::query_as::<_, TransferRow>(
+        "SELECT id, submission_id, peertube_uuid, service_account_id, consumer,
+                destination, destination_ref, source_title, source_url, state,
+                output_size, source_cleanup_state, peertube_delete_state, error,
+                retry_count, created_at, completed_at, deleted_at, updated_at
+         FROM transfers
+         WHERE peertube_uuid = ? AND service_account_id = ?
+         ORDER BY created_at DESC LIMIT 1",
+    )
+    .bind(peertube_uuid)
+    .bind(service_account_id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn update_transfer_cleanup(
+    pool: &SqlitePool,
+    id: &str,
+    state: &str,
+    error: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE transfers
+         SET state = ?, error = ?, retry_count = retry_count + 1, updated_at = ?
+         WHERE id = ?",
+    )
+    .bind(state)
+    .bind(error)
+    .bind(now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn list_transfers(pool: &SqlitePool) -> Result<Vec<TransferRow>, sqlx::Error> {
+    sqlx::query_as::<_, TransferRow>(
+        "SELECT id, submission_id, peertube_uuid, service_account_id, consumer,
+                destination, destination_ref, source_title, source_url, state,
+                output_size, source_cleanup_state, peertube_delete_state, error,
+                retry_count, created_at, completed_at, deleted_at, updated_at
+         FROM transfers ORDER BY created_at DESC",
+    )
+    .fetch_all(pool)
+    .await
 }
 
 pub async fn create_submission(
@@ -788,6 +994,92 @@ mod tests {
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "pending");
+    }
+
+    #[tokio::test]
+    async fn service_account_upsert_is_idempotent() {
+        let pool = test_pool().await;
+        let account = ServiceAccountRow {
+            id: "svc-convertube".into(),
+            name: "converttube".into(),
+            token_hash: "hash".into(),
+            scopes_json: "[\"catalog:read\"]".into(),
+            enabled: true,
+            managed_by: "manifest".into(),
+            last_used_at: None,
+            created_at: "2026-09-30T00:00:00Z".into(),
+            updated_at: "2026-09-30T00:00:00Z".into(),
+        };
+
+        upsert_service_account(&pool, &account).await.unwrap();
+        upsert_service_account(&pool, &account).await.unwrap();
+
+        let rows = list_service_accounts(&pool).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "converttube");
+    }
+
+    #[tokio::test]
+    async fn active_catalog_excludes_deleted_submissions() {
+        let pool = test_pool().await;
+        create_submission(&pool, "active", "https://example.com/active", None, None, false, Some("Active"), None, None, None, None).await.unwrap();
+        create_submission(&pool, "deleted", "https://example.com/deleted", None, None, false, Some("Deleted"), None, None, None, None).await.unwrap();
+        sqlx::query("UPDATE submissions SET peertube_uuid = ?, status = ? WHERE id = ?")
+            .bind("uuid-active")
+            .bind("complete")
+            .bind("active")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE submissions SET peertube_uuid = ?, status = ? WHERE id = ?")
+            .bind("uuid-deleted")
+            .bind("deleted")
+            .bind("deleted")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let rows = active_catalog_submissions(&pool).await.unwrap();
+        assert_eq!(rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), vec!["active"]);
+    }
+
+    #[tokio::test]
+    async fn transfer_history_keeps_deleted_submission() {
+        let pool = test_pool().await;
+        create_submission(&pool, "transfer-submission", "https://example.com/transfer", None, None, false, Some("Transferred"), None, None, None, None).await.unwrap();
+        sqlx::query("UPDATE submissions SET peertube_uuid = ?, status = 'deleted' WHERE id = ?")
+            .bind("uuid-transfer")
+            .bind("transfer-submission")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let transfer = TransferRow {
+            id: "transfer-1".into(),
+            submission_id: "transfer-submission".into(),
+            peertube_uuid: "uuid-transfer".into(),
+            service_account_id: "svc-convertube".into(),
+            consumer: "converttube".into(),
+            destination: "navidrome".into(),
+            destination_ref: Some("/music/song.mp3".into()),
+            source_title: Some("Transferred".into()),
+            source_url: Some("https://example.com/transfer".into()),
+            state: "deleted".into(),
+            output_size: Some(42),
+            source_cleanup_state: "complete".into(),
+            peertube_delete_state: "complete".into(),
+            error: None,
+            retry_count: 0,
+            created_at: "2026-09-30T00:00:00Z".into(),
+            completed_at: Some("2026-09-30T00:01:00Z".into()),
+            deleted_at: Some("2026-09-30T00:01:00Z".into()),
+            updated_at: "2026-09-30T00:01:00Z".into(),
+        };
+        create_transfer(&pool, &transfer).await.unwrap();
+
+        let history = list_transfers(&pool).await.unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'transfer-submission'").fetch_one(&pool).await.unwrap(), 1);
     }
 
     #[tokio::test]
