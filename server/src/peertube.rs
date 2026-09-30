@@ -2,6 +2,8 @@ use anyhow::{anyhow, Result};
 use reqwest::{Client, Response, Url};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tokio_util::io::ReaderStream;
 
 /// PeerTube tag written at upload time for the submitting user, e.g. `submitter:walter`.
@@ -149,6 +151,22 @@ mod tests {
         })).unwrap();
 
         assert_eq!(detail.best_download_url().as_deref(), Some("https://peer/download-1080.mp4"));
+    }
+
+    #[test]
+    fn cached_access_token_is_only_used_before_expiry() {
+        let now = std::time::Instant::now();
+        let fresh = CachedAccessToken {
+            token: "fresh".into(),
+            expires_at: now + std::time::Duration::from_secs(60),
+        };
+        let expired = CachedAccessToken {
+            token: "expired".into(),
+            expires_at: now - std::time::Duration::from_secs(1),
+        };
+
+        assert!(access_token_is_fresh(&fresh, now));
+        assert!(!access_token_is_fresh(&expired, now));
     }
 }
 
@@ -578,9 +596,27 @@ struct VideoListEntry {
 }
 
 static HTTP_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+static ACCESS_TOKEN_CACHE: std::sync::OnceLock<Mutex<Option<CachedAccessToken>>> =
+    std::sync::OnceLock::new();
+
+const ACCESS_TOKEN_TTL: Duration = Duration::from_secs(300);
+
+#[derive(Clone)]
+struct CachedAccessToken {
+    token: String,
+    expires_at: Instant,
+}
 
 fn client() -> &'static Client {
     HTTP_CLIENT.get_or_init(Client::new)
+}
+
+fn access_token_cache() -> &'static Mutex<Option<CachedAccessToken>> {
+    ACCESS_TOKEN_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn access_token_is_fresh(cached: &CachedAccessToken, now: Instant) -> bool {
+    cached.expires_at > now
 }
 
 async fn fetch_access_token(
@@ -589,6 +625,11 @@ async fn fetch_access_token(
     username: &str,
     password: &str,
 ) -> Result<String> {
+    let mut cached = access_token_cache().lock().await;
+    if let Some(token) = cached.as_ref().filter(|token| access_token_is_fresh(token, Instant::now())) {
+        return Ok(token.token.clone());
+    }
+
     let host = host_override
         .map(|s| s.to_string())
         .unwrap_or_else(|| derive_host(url));
@@ -620,6 +661,10 @@ async fn fetch_access_token(
         .await?;
     let token: TokenResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
+    *cached = Some(CachedAccessToken {
+        token: token.access_token.clone(),
+        expires_at: Instant::now() + ACCESS_TOKEN_TTL,
+    });
     Ok(token.access_token)
 }
 

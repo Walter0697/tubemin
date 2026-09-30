@@ -7,7 +7,7 @@ use crate::{
 };
 use axum::{
     body::Body,
-    extract::{Path, State},
+    extract::{Path, Request, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -84,6 +84,15 @@ fn filter_owned_videos(
         .collect()
 }
 
+fn public_thumbnail_url(scheme: &str, host: &str, path: &str) -> String {
+    format!(
+        "{}://{}{}",
+        scheme,
+        host,
+        if path.starts_with('/') { path.to_string() } else { format!("/{path}") }
+    )
+}
+
 fn safe_media_filename(filename: &str) -> bool {
     source_cleanup::is_safe_filename(filename)
 }
@@ -136,6 +145,7 @@ async fn ensure_owned_video(
 pub async fn service_catalog(
     RequireServiceAccount { principal }: RequireServiceAccount,
     State(state): State<AppState>,
+    request: Request,
 ) -> Response {
     if let Err(response) = (RequireServiceAccount { principal: principal.clone() })
         .require(ServiceScope::CatalogRead)
@@ -146,6 +156,14 @@ pub async fn service_catalog(
         Ok(credentials) => credentials,
         Err(response) => return response,
     };
+    let Some(public_host) = host else {
+        return service_error(StatusCode::SERVICE_UNAVAILABLE, "PeerTube public host is not configured");
+    };
+    let scheme = request
+        .headers()
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("http");
     let submissions = match db::active_catalog_submissions(&state.pool).await {
         Ok(submissions) => submissions,
         Err(error) => {
@@ -169,7 +187,12 @@ pub async fn service_catalog(
             Some(ServiceCatalogItem {
                 id: video.uuid.clone(),
                 title: submission.title.clone().unwrap_or(video.title),
-                thumbnail_url: format!("/api/service/videos/{}/thumbnail", video.uuid),
+                thumbnail_url: video
+                    .thumbnail_path
+                    .as_deref()
+                    .or(video.preview_path.as_deref())
+                    .map(|path| public_thumbnail_url(scheme, public_host, path))
+                    .unwrap_or_default(),
                 published_at: video.published_at,
                 processing_state: submission.status.clone(),
                 original_media_available: true,
@@ -183,6 +206,7 @@ pub async fn service_video(
     RequireServiceAccount { principal }: RequireServiceAccount,
     State(state): State<AppState>,
     Path(uuid): Path<String>,
+    request: Request,
 ) -> Response {
     if let Err(response) = (RequireServiceAccount { principal: principal.clone() })
         .require(ServiceScope::CatalogRead)
@@ -206,6 +230,14 @@ pub async fn service_video(
         Ok(credentials) => credentials,
         Err(response) => return response,
     };
+    let Some(public_host) = host else {
+        return service_error(StatusCode::SERVICE_UNAVAILABLE, "PeerTube public host is not configured");
+    };
+    let scheme = request
+        .headers()
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("http");
     let detail = match peertube::get_video(url, host, username, password, &uuid).await {
         Ok(detail) => detail,
         Err(error) => {
@@ -220,7 +252,11 @@ pub async fn service_video(
         description: detail.description,
         duration: detail.duration,
         published_at: detail.published_at,
-        thumbnail_url: format!("/api/service/videos/{}/thumbnail", uuid),
+        thumbnail_url: detail
+            .thumbnail_path
+            .as_deref()
+            .map(|path| public_thumbnail_url(scheme, public_host, path))
+            .unwrap_or_default(),
         original_media_available,
     })
     .into_response()
@@ -596,6 +632,14 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].uuid, "known");
+    }
+
+    #[test]
+    fn public_thumbnail_url_uses_peer_tube_host_without_exposing_credentials() {
+        assert_eq!(
+            public_thumbnail_url("https", "videos.example.com", "/lazy-static/thumb.jpg"),
+            "https://videos.example.com/lazy-static/thumb.jpg"
+        );
     }
 
     #[test]
