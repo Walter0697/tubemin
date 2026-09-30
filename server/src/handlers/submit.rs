@@ -387,6 +387,7 @@ mod tests {
             peertube_oidc_client_id: None,
             peertube_oidc_client_secret: None,
             peertube_cleanup_token: None,
+            service_accounts_file: "/tmp/service-accounts.toml".into(),
         });
 
         let state = AppState {
@@ -516,6 +517,7 @@ mod tests {
             peertube_oidc_client_id: None,
             peertube_oidc_client_secret: None,
             peertube_cleanup_token: None,
+            service_accounts_file: "/tmp/service-accounts.toml".into(),
         });
 
         let state = AppState {

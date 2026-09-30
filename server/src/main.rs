@@ -15,6 +15,7 @@ mod peertube;
 mod poller;
 mod progress;
 mod state;
+mod service_accounts;
 mod transcoding_poller;
 mod url_validator;
 mod video_meta;
@@ -44,6 +45,14 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let config = config::Config::from_env()?;
     let pool = Arc::new(db::init(&config.database_url).await?);
+    if config.service_accounts_file.exists() {
+        service_accounts::sync_manifest(&pool, &config.service_accounts_file).await?;
+    } else {
+        tracing::info!(
+            path = %config.service_accounts_file.display(),
+            "no service-account manifest configured"
+        );
+    }
     db::reset_interrupted_downloads(&pool).await?;
     let config = Arc::new(config);
     let progress_map = progress::new_progress_map();

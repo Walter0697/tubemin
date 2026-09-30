@@ -122,6 +122,7 @@ mod tests {
                 peertube_oidc_client_id: None,
                 peertube_oidc_client_secret: None,
                 peertube_cleanup_token: None,
+                service_accounts_file: PathBuf::from("/tmp/service-accounts.toml"),
             }),
             progress: progress::new_progress_map(),
         }

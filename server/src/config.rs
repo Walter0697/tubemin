@@ -33,6 +33,7 @@ pub struct Config {
     pub peertube_oidc_client_id: Option<String>,
     pub peertube_oidc_client_secret: Option<String>,
     pub peertube_cleanup_token: Option<String>,
+    pub service_accounts_file: PathBuf,
 }
 
 impl Config {
@@ -135,6 +136,10 @@ impl Config {
             peertube_cleanup_token: std::env::var("TUBEMIN_PEERTUBE_CLEANUP_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
+            service_accounts_file: PathBuf::from(
+                std::env::var("TUBEMIN_SERVICE_ACCOUNTS_FILE")
+                    .unwrap_or_else(|_| "/data/service-accounts.toml".into()),
+            ),
         })
     }
 }
