@@ -171,6 +171,34 @@ pub async fn active_catalog_submissions(
     .await
 }
 
+pub async fn find_submission_by_peertube_uuid(
+    pool: &SqlitePool,
+    peertube_uuid: &str,
+) -> Result<Option<Submission>, sqlx::Error> {
+    sqlx::query_as::<_, Submission>(
+        "SELECT * FROM submissions WHERE peertube_uuid = ? ORDER BY submitted_at DESC LIMIT 1",
+    )
+    .bind(peertube_uuid)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn set_submission_status(
+    pool: &SqlitePool,
+    peertube_uuid: &str,
+    status: &str,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        "UPDATE submissions SET status = ?, updated_at = ? WHERE peertube_uuid = ?",
+    )
+    .bind(status)
+    .bind(Utc::now().to_rfc3339())
+    .bind(peertube_uuid)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
 pub async fn create_transfer(
     pool: &SqlitePool,
     transfer: &TransferRow,
@@ -242,6 +270,35 @@ pub async fn update_transfer_cleanup(
     .bind(state)
     .bind(error)
     .bind(now)
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn set_transfer_state(
+    pool: &SqlitePool,
+    id: &str,
+    state: &str,
+    source_cleanup_state: &str,
+    peertube_delete_state: &str,
+    error: Option<&str>,
+    completed_at: Option<&str>,
+    deleted_at: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE transfers
+         SET state = ?, source_cleanup_state = ?, peertube_delete_state = ?,
+             error = ?, completed_at = ?, deleted_at = ?, updated_at = ?
+         WHERE id = ?",
+    )
+    .bind(state)
+    .bind(source_cleanup_state)
+    .bind(peertube_delete_state)
+    .bind(error)
+    .bind(completed_at)
+    .bind(deleted_at)
+    .bind(Utc::now().to_rfc3339())
     .bind(id)
     .execute(pool)
     .await?;
@@ -1080,6 +1137,23 @@ mod tests {
         let history = list_transfers(&pool).await.unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'transfer-submission'").fetch_one(&pool).await.unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn submission_status_can_be_updated_by_peer_tube_uuid() {
+        let pool = test_pool().await;
+        create_submission(&pool, "state-submission", "https://example.com/state", None, None, false, None, None, None, None, None).await.unwrap();
+        sqlx::query("UPDATE submissions SET peertube_uuid = 'uuid-state' WHERE id = 'state-submission'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        assert!(set_submission_status(&pool, "uuid-state", "processing").await.unwrap());
+        let status = sqlx::query_scalar::<_, String>("SELECT status FROM submissions WHERE id = 'state-submission'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(status, "processing");
     }
 
     #[tokio::test]

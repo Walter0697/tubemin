@@ -21,7 +21,8 @@ pub use settings::{
     download_shortcut, generate_key, generate_shortcut_setup, revoke_key, settings,
 };
 pub use service_api::{
-    service_catalog, service_media, service_thumbnail, service_video,
+    service_catalog, service_complete, service_fail, service_media, service_thumbnail,
+    service_video,
 };
 pub use shortcut::setup;
 pub use submissions::{delete_submissions, list_submissions};

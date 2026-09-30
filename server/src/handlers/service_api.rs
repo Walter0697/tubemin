@@ -12,10 +12,11 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::{HashMap, HashSet}, path::{Path as FsPath, PathBuf}};
 use tokio_util::io::ReaderStream;
+use uuid::Uuid;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,6 +39,20 @@ pub struct ServiceVideoDetail {
     pub published_at: Option<String>,
     pub thumbnail_url: String,
     pub original_media_available: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CompletionRequest {
+    pub destination: String,
+    pub destination_ref: Option<String>,
+    pub output_size: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FailureRequest {
+    pub error: String,
+    pub destination: Option<String>,
+    pub destination_ref: Option<String>,
 }
 
 fn service_error(status: StatusCode, message: &str) -> Response {
@@ -288,6 +303,231 @@ pub async fn service_thumbnail(
             service_error(StatusCode::BAD_GATEWAY, "thumbnail unavailable")
         }
     }
+}
+
+async fn remove_local_sources(state: &AppState, filename: Option<&str>) -> Result<Vec<String>, String> {
+    let Some(filename) = filename else {
+        return Ok(Vec::new());
+    };
+    if !safe_media_filename(filename) {
+        return Err("submission filename is unsafe".into());
+    }
+    let _upload_guard = crate::watcher::upload_lock().lock().await;
+    let mut removed = Vec::new();
+    for root in [
+        state.config.peertube_import_dir.clone(),
+        state.config.downloads_dir.clone(),
+    ] {
+        for path in source_cleanup::source_artifacts(&root, filename) {
+            match tokio::fs::remove_file(&path).await {
+                Ok(()) => removed.push(path.display().to_string()),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(format!("could not remove {}: {error}", path.display())),
+            }
+        }
+    }
+    Ok(removed)
+}
+
+pub async fn service_complete(
+    RequireServiceAccount { principal }: RequireServiceAccount,
+    State(state): State<AppState>,
+    Path(uuid): Path<String>,
+    Json(request): Json<CompletionRequest>,
+) -> Response {
+    if let Err(response) = (RequireServiceAccount { principal: principal.clone() })
+        .require(ServiceScope::TransferComplete)
+    {
+        return response;
+    }
+    if request.destination.trim().is_empty() {
+        return service_error(StatusCode::BAD_REQUEST, "destination is required");
+    }
+    let submission = match db::find_submission_by_peertube_uuid(&state.pool, &uuid).await {
+        Ok(Some(submission)) => submission,
+        Ok(None) => return service_error(StatusCode::NOT_FOUND, "video not found"),
+        Err(error) => {
+            tracing::error!(error = %error, "service completion database lookup failed");
+            return service_error(StatusCode::INTERNAL_SERVER_ERROR, "completion lookup failed");
+        }
+    };
+    let (url, host, username, password) = match peertube_credentials(&state) {
+        Ok(credentials) => credentials,
+        Err(response) => return response,
+    };
+    let existing = match db::get_transfer_for_video(&state.pool, &uuid, &principal.id).await {
+        Ok(existing) => existing,
+        Err(error) => {
+            tracing::error!(error = %error, "service completion transfer lookup failed");
+            return service_error(StatusCode::INTERNAL_SERVER_ERROR, "completion lookup failed");
+        }
+    };
+    if let Some(transfer) = existing.as_ref() {
+        if transfer.state == "deleted" {
+            return Json(json!({ "status": "deleted", "transfer_id": transfer.id, "already_deleted": true })).into_response();
+        }
+    }
+    let transfer_id = existing
+        .as_ref()
+        .map(|transfer| transfer.id.clone())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    if existing.is_none() {
+        let now = chrono::Utc::now().to_rfc3339();
+        let transfer = db::TransferRow {
+            id: transfer_id.clone(),
+            submission_id: submission.id.clone(),
+            peertube_uuid: uuid.clone(),
+            service_account_id: principal.id.clone(),
+            consumer: principal.name.clone(),
+            destination: request.destination.clone(),
+            destination_ref: request.destination_ref.clone(),
+            source_title: submission.title.clone(),
+            source_url: Some(submission.url.clone()),
+            state: "processing".into(),
+            output_size: request.output_size,
+            source_cleanup_state: "pending".into(),
+            peertube_delete_state: "pending".into(),
+            error: None,
+            retry_count: 0,
+            created_at: now.clone(),
+            completed_at: None,
+            deleted_at: None,
+            updated_at: now,
+        };
+        if let Err(error) = db::create_transfer(&state.pool, &transfer).await {
+            tracing::error!(error = %error, "service completion transfer creation failed");
+            return service_error(StatusCode::INTERNAL_SERVER_ERROR, "could not create transfer");
+        }
+    }
+    if let Err(error) = db::set_submission_status(&state.pool, &uuid, "processing").await {
+        tracing::error!(error = %error, "service completion state transition failed");
+        return service_error(StatusCode::INTERNAL_SERVER_ERROR, "could not update video state");
+    }
+    let source_error = remove_local_sources(&state, submission.filename.as_deref())
+        .await
+        .err();
+    let source_state = if source_error.is_some() { "error" } else { "complete" };
+    let _ = db::set_transfer_state(
+        &state.pool,
+        &transfer_id,
+        "cleanup_pending",
+        source_state,
+        "pending",
+        source_error.as_deref(),
+        Some(&chrono::Utc::now().to_rfc3339()),
+        None,
+    )
+    .await;
+
+    if let Err(error) = peertube::delete_video(url, host, username, password, &uuid).await {
+        let message = error.to_string();
+        let _ = db::set_transfer_state(
+            &state.pool,
+            &transfer_id,
+            "cleanup_pending",
+            source_state,
+            "error",
+            Some(&message),
+            Some(&chrono::Utc::now().to_rfc3339()),
+            None,
+        )
+        .await;
+        let _ = db::set_submission_status(&state.pool, &uuid, "cleanup_pending").await;
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({ "status": "cleanup_pending", "transfer_id": transfer_id, "error": message })),
+        )
+            .into_response();
+    }
+
+    let deleted_at = chrono::Utc::now().to_rfc3339();
+    let _ = db::set_transfer_state(
+        &state.pool,
+        &transfer_id,
+        "deleted",
+        source_state,
+        "complete",
+        source_error.as_deref(),
+        Some(&deleted_at),
+        Some(&deleted_at),
+    )
+    .await;
+    if let Err(error) = db::set_submission_status(&state.pool, &uuid, "deleted").await {
+        tracing::error!(error = %error, uuid = %uuid, "service completion final state update failed");
+    }
+    Json(json!({
+        "status": "deleted",
+        "transfer_id": transfer_id,
+        "source_cleanup": source_state,
+    }))
+    .into_response()
+}
+
+pub async fn service_fail(
+    RequireServiceAccount { principal }: RequireServiceAccount,
+    State(state): State<AppState>,
+    Path(uuid): Path<String>,
+    Json(request): Json<FailureRequest>,
+) -> Response {
+    if let Err(response) = (RequireServiceAccount { principal: principal.clone() })
+        .require(ServiceScope::TransferFail)
+    {
+        return response;
+    }
+    if request.error.trim().is_empty() {
+        return service_error(StatusCode::BAD_REQUEST, "error is required");
+    }
+    let submission = match db::find_submission_by_peertube_uuid(&state.pool, &uuid).await {
+        Ok(Some(submission)) => submission,
+        Ok(None) => return service_error(StatusCode::NOT_FOUND, "video not found"),
+        Err(error) => {
+            tracing::error!(error = %error, "service failure database lookup failed");
+            return service_error(StatusCode::INTERNAL_SERVER_ERROR, "failure lookup failed");
+        }
+    };
+    let existing = match db::get_transfer_for_video(&state.pool, &uuid, &principal.id).await {
+        Ok(existing) => existing,
+        Err(error) => {
+            tracing::error!(error = %error, "service failure transfer lookup failed");
+            return service_error(StatusCode::INTERNAL_SERVER_ERROR, "failure lookup failed");
+        }
+    };
+    let transfer_id = existing
+        .as_ref()
+        .map(|transfer| transfer.id.clone())
+        .unwrap_or_else(|| Uuid::new_v4().to_string());
+    if existing.is_none() {
+        let now = chrono::Utc::now().to_rfc3339();
+        let transfer = db::TransferRow {
+            id: transfer_id.clone(),
+            submission_id: submission.id,
+            peertube_uuid: uuid.clone(),
+            service_account_id: principal.id,
+            consumer: principal.name,
+            destination: request.destination.unwrap_or_else(|| "unknown".into()),
+            destination_ref: request.destination_ref,
+            source_title: submission.title,
+            source_url: Some(submission.url),
+            state: "failed".into(),
+            output_size: None,
+            source_cleanup_state: "pending".into(),
+            peertube_delete_state: "pending".into(),
+            error: Some(request.error.clone()),
+            retry_count: 1,
+            created_at: now.clone(),
+            completed_at: None,
+            deleted_at: None,
+            updated_at: now,
+        };
+        if let Err(error) = db::create_transfer(&state.pool, &transfer).await {
+            tracing::error!(error = %error, "service failure transfer creation failed");
+            return service_error(StatusCode::INTERNAL_SERVER_ERROR, "could not record failure");
+        }
+    } else {
+        let _ = db::update_transfer_cleanup(&state.pool, &transfer_id, "failed", Some(&request.error)).await;
+    }
+    let _ = db::set_submission_status(&state.pool, &uuid, "error").await;
+    Json(json!({ "status": "failed", "transfer_id": transfer_id })).into_response()
 }
 
 #[cfg(test)]
