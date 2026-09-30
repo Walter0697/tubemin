@@ -16,6 +16,7 @@ mod poller;
 mod progress;
 mod state;
 mod service_accounts;
+mod source_cleanup;
 mod transcoding_poller;
 mod url_validator;
 mod video_meta;
