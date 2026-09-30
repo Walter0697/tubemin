@@ -112,6 +112,7 @@ mod tests {
                 oidc_login_label: "Sign in".into(),
                 peertube_url: None,
                 peertube_host: None,
+                peertube_domain: None,
                 peertube_username: None,
                 peertube_password: None,
                 peertube_admin_email: None,

@@ -84,11 +84,11 @@ fn filter_owned_videos(
         .collect()
 }
 
-fn public_thumbnail_url(scheme: &str, host: &str, path: &str) -> String {
+fn public_thumbnail_url(scheme: &str, domain: &str, path: &str) -> String {
     format!(
         "{}://{}{}",
         scheme,
-        host,
+        domain,
         if path.starts_with('/') { path.to_string() } else { format!("/{path}") }
     )
 }
@@ -156,7 +156,7 @@ pub async fn service_catalog(
         Ok(credentials) => credentials,
         Err(response) => return response,
     };
-    let Some(public_host) = host else {
+    let Some(public_domain) = state.config.peertube_domain.as_deref() else {
         return service_error(StatusCode::SERVICE_UNAVAILABLE, "PeerTube public host is not configured");
     };
     let scheme = request
@@ -191,7 +191,7 @@ pub async fn service_catalog(
                     .thumbnail_path
                     .as_deref()
                     .or(video.preview_path.as_deref())
-                    .map(|path| public_thumbnail_url(scheme, public_host, path))
+                    .map(|path| public_thumbnail_url(scheme, public_domain, path))
                     .unwrap_or_default(),
                 published_at: video.published_at,
                 processing_state: submission.status.clone(),
@@ -230,7 +230,7 @@ pub async fn service_video(
         Ok(credentials) => credentials,
         Err(response) => return response,
     };
-    let Some(public_host) = host else {
+    let Some(public_domain) = state.config.peertube_domain.as_deref() else {
         return service_error(StatusCode::SERVICE_UNAVAILABLE, "PeerTube public host is not configured");
     };
     let scheme = request
@@ -255,7 +255,7 @@ pub async fn service_video(
         thumbnail_url: detail
             .thumbnail_path
             .as_deref()
-            .map(|path| public_thumbnail_url(scheme, public_host, path))
+            .map(|path| public_thumbnail_url(scheme, public_domain, path))
             .unwrap_or_default(),
         original_media_available,
     })
