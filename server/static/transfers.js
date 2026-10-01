@@ -16,7 +16,7 @@ function renderTransfers(items) {
     '<td>' + escapeHtml(item.source_title || item.peertube_uuid) + '</td>' +
     '<td>' + escapeHtml(item.consumer) + '</td>' +
     '<td>' + escapeHtml(item.destination) + '</td>' +
-    '<td><span class="status-dot status-' + escapeHtml(item.state) + '"></span>' + escapeHtml(item.state) + '</td>' +
+    '<td><span class="transfer-state"><span class="status-dot status-' + escapeHtml(item.state) + '"></span>' + escapeHtml(item.state) + '</span></td>' +
     '<td>' + escapeHtml(item.updated_at) + '</td>' +
     '<td>' + escapeHtml(item.error || '') + '</td>' +
     '</tr>').join('') + '</tbody></table>';

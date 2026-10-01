@@ -349,6 +349,7 @@ input::placeholder { color: var(--text-dim); }
 .status-downloading { background: #60a5fa; box-shadow: 0 0 6px #60a5fa66; animation: pulse-blue 1.4s ease-in-out infinite; }
 .status-transcoding  { background: var(--status-warn); box-shadow: 0 0 6px #e8884a66; animation: pulse-amber 1.4s ease-in-out infinite; }
 .status-complete     { background: #a3e635; box-shadow: 0 0 8px #a3e63566; }
+.status-deleted      { background: var(--status-ok); box-shadow: 0 0 6px #4ade8066; }
 
 @keyframes pulse-blue {
   0%, 100% { opacity: 1; }
@@ -1103,6 +1104,15 @@ a.card.card-selected {
 .transfer-history-table td {
   font-size: 0.9rem;
   color: var(--text-muted);
+}
+.transfer-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.transfer-state .status-dot {
+  margin-right: 0;
 }
 .transfer-history-table tbody tr {
   transition: background 0.15s ease;
