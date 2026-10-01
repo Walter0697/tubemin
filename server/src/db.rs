@@ -644,6 +644,7 @@ pub async fn set_filename_by_url(
 pub async fn file_ready_for_import(
     pool: &SqlitePool,
     filename: &str,
+    has_completion_sidecar: bool,
 ) -> Result<bool, sqlx::Error> {
     let row: Option<(i64, String)> = sqlx::query_as(
         "SELECT is_direct, status FROM submissions
@@ -652,6 +653,10 @@ pub async fn file_ready_for_import(
     .bind(filename)
     .fetch_optional(pool)
     .await?;
+
+    if has_completion_sidecar {
+        return Ok(true);
+    }
 
     if let Some((is_direct, status)) = row {
         return Ok(is_direct != 0 || matches!(status.as_str(), "pending" | "downloading"));
@@ -1451,12 +1456,22 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!file_ready_for_import(&pool, "video.webm").await.unwrap());
+        assert!(!file_ready_for_import(&pool, "video.webm", false).await.unwrap());
 
         set_filename_by_url(&pool, "https://example.com/metube", "video.webm")
             .await
             .unwrap();
-        assert!(file_ready_for_import(&pool, "video.webm").await.unwrap());
+        assert!(file_ready_for_import(&pool, "video.webm", false).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn file_ready_for_import_accepts_completion_sidecar_after_metube_history_loss() {
+        let pool = test_pool().await;
+        create_basic(&pool, "stuck", "https://example.com/stuck").await;
+        mark_downloading(&pool, "https://example.com/stuck").await.unwrap();
+
+        assert!(!file_ready_for_import(&pool, "stuck.mp4", false).await.unwrap());
+        assert!(file_ready_for_import(&pool, "stuck.mp4", true).await.unwrap());
     }
 
     // Regression: downloads finishing out of submission order must not swap rows.
