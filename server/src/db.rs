@@ -943,21 +943,21 @@ pub async fn list_submissions_paged(
         }
         (Some(owner), None, Some(q)) => {
             let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM submissions WHERE submitter_sub = ? AND (title LIKE ? OR url LIKE ?)",
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub = ? AND status NOT IN ('deleted', 'handed_off') AND (title LIKE ? OR url LIKE ?)",
             ).bind(owner).bind(q).bind(q).fetch_one(pool).await?;
             let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions WHERE submitter_sub = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+                "SELECT * FROM submissions WHERE submitter_sub = ? AND status NOT IN ('deleted', 'handed_off') AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
             ).bind(owner).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
             (rows, total)
         }
         (Some(owner), None, None) => {
             let total: i64 =
-                sqlx::query_scalar("SELECT COUNT(*) FROM submissions WHERE submitter_sub = ?")
+                sqlx::query_scalar("SELECT COUNT(*) FROM submissions WHERE submitter_sub = ? AND status NOT IN ('deleted', 'handed_off')")
                     .bind(owner)
                     .fetch_one(pool)
                     .await?;
             let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions WHERE submitter_sub = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+                "SELECT * FROM submissions WHERE submitter_sub = ? AND status NOT IN ('deleted', 'handed_off') ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
             ).bind(owner).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
             (rows, total)
         }
@@ -981,19 +981,19 @@ pub async fn list_submissions_paged(
         }
         (None, None, Some(q)) => {
             let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND (title LIKE ? OR url LIKE ?)",
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status NOT IN ('deleted', 'handed_off') AND (title LIKE ? OR url LIKE ?)",
             ).bind(owner_display).bind(q).bind(q).fetch_one(pool).await?;
             let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status NOT IN ('deleted', 'handed_off') AND (title LIKE ? OR url LIKE ?) ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
             ).bind(owner_display).bind(q).bind(q).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
             (rows, total)
         }
         (None, None, None) => {
             let total: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ?",
+                "SELECT COUNT(*) FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status NOT IN ('deleted', 'handed_off')",
             ).bind(owner_display).fetch_one(pool).await?;
             let rows = sqlx::query_as::<_, Submission>(
-                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
+                "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status NOT IN ('deleted', 'handed_off') ORDER BY submitted_at DESC LIMIT ? OFFSET ?",
             ).bind(owner_display).bind(per_page as i64).bind(offset).fetch_all(pool).await?;
             (rows, total)
         }
@@ -1001,14 +1001,14 @@ pub async fn list_submissions_paged(
 
     let count_rows = if let Some(sub) = owner_sub {
         sqlx::query_as::<_, StatusCount>(
-            "SELECT status, COUNT(*) as count FROM submissions WHERE submitter_sub = ? GROUP BY status",
+            "SELECT status, COUNT(*) as count FROM submissions WHERE submitter_sub = ? AND status NOT IN ('deleted', 'handed_off') GROUP BY status",
         )
         .bind(sub)
         .fetch_all(pool)
         .await?
     } else {
         sqlx::query_as::<_, StatusCount>(
-            "SELECT status, COUNT(*) as count FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? GROUP BY status",
+            "SELECT status, COUNT(*) as count FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status NOT IN ('deleted', 'handed_off') GROUP BY status",
         )
         .bind(owner_display)
         .fetch_all(pool)
