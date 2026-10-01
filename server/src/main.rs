@@ -273,6 +273,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/dashboard", get(handlers::dashboard))
         .route("/transfers", get(handlers::transfers_page))
         .route("/api/transfers", get(handlers::transfers_api))
+        .route(
+            "/api/transfers/cleanup-archived",
+            post(handlers::clear_archived_transfers),
+        )
         .route("/cleanup", get(handlers::cleanup_page))
         .route("/api/cleanup/videos", get(handlers::list_orphan_videos))
         .route("/api/cleanup/delete", post(handlers::delete_orphan_videos))

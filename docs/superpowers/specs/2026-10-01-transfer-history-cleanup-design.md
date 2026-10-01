@@ -22,7 +22,8 @@ state is already `deleted`, including legacy Jellypik handoff records stored as
 
 ## API and data flow
 
-1. The Transfers page loads the current transfer list as it does today.
+1. The Transfers page loads the current transfer list and archive counts from
+   both the `transfers` and `submissions` tables.
 2. The page renders the cleanup action only when deleted or legacy handed-off
    rows exist.
 3. After confirmation, the browser sends an authenticated request to a new
@@ -31,6 +32,10 @@ state is already `deleted`, including legacy Jellypik handoff records stored as
    database transaction and returns separate counts for deleted transfers and
    legacy handed-off submissions.
 5. The page refreshes the transfer list and shows the result.
+
+The existing `GET /api/transfers` response keeps its `transfers` array and adds
+`archiveCounts: { deletedTransfers, handedOffSubmissions }`; this lets the UI
+detect legacy Jellypik rows that are not present in the transfer list.
 
 No PeerTube API, source-cleanup, or downstream-service operation is performed
 by this action.

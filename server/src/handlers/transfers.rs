@@ -2,6 +2,7 @@ use crate::{db, oidc::RequireAuth, state::AppState};
 use axum::{
     extract::{Request, State},
     response::{Html, IntoResponse},
+    http::StatusCode,
     Json,
 };
 use minijinja::Environment;
@@ -40,11 +41,42 @@ pub async fn transfers_api(
     RequireAuth(_user): RequireAuth,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    match db::list_transfers(&state.pool).await {
-        Ok(transfers) => Json(json!({ "transfers": transfers })),
-        Err(error) => {
+    match (db::list_transfers(&state.pool).await, db::count_archived_transfer_history(&state.pool).await) {
+        (Ok(transfers), Ok((deleted_transfers, handed_off_submissions))) => Json(json!({
+            "transfers": transfers,
+            "archiveCounts": {
+                "deletedTransfers": deleted_transfers,
+                "handedOffSubmissions": handed_off_submissions,
+            }
+        })),
+        (Err(error), _) | (_, Err(error)) => {
             tracing::error!(error = %error, "transfer history lookup failed");
-            Json(json!({ "transfers": [], "error": "transfer history unavailable" }))
+            Json(json!({
+                "transfers": [],
+                "archiveCounts": { "deletedTransfers": 0, "handedOffSubmissions": 0 },
+                "error": "transfer history unavailable"
+            }))
+        }
+    }
+}
+
+pub async fn clear_archived_transfers(
+    RequireAuth(_user): RequireAuth,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    match db::clear_archived_transfer_history(&state.pool).await {
+        Ok(result) => Json(json!({
+            "deletedTransfers": result.deleted_transfers,
+            "handedOffSubmissions": result.handed_off_submissions,
+        }))
+        .into_response(),
+        Err(error) => {
+            tracing::error!(error = %error, "archived transfer cleanup failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "archived transfer cleanup failed" })),
+            )
+                .into_response()
         }
     }
 }

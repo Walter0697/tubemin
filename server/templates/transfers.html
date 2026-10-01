@@ -12,10 +12,25 @@
   <main class="page transfer-history-page">
     <h1 class="page-title">Transfer history</h1>
     <p class="page-intro">Completed and failed transfers reported by downstream services.</p>
+    <div class="transfer-history-toolbar" id="archive-toolbar" hidden>
+      <span class="archive-summary" id="archive-summary"></span>
+      <button class="btn-danger" id="clear-archived-btn" type="button">Clear archived records</button>
+    </div>
     <div id="transfer-history" class="transfer-history-table-wrap">
       <p class="empty-msg">Loading transfer history…</p>
     </div>
   </main>
+  <div class="modal-overlay" id="archive-confirm-modal" hidden>
+    <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="archive-confirm-title">
+      <h2 id="archive-confirm-title">Clear archived records?</h2>
+      <p class="modal-msg">This removes deleted transfer history and legacy handed-off history only. PeerTube videos, source files, and Navidrome output are not affected.</p>
+      <p class="modal-msg" id="archive-confirm-counts"></p>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="archive-cancel-btn" type="button">Cancel</button>
+        <button class="btn-danger" id="archive-confirm-btn" type="button">Clear records</button>
+      </div>
+    </div>
+  </div>
   <script src="/static/transfers.js?v={{ asset_version }}"></script>
 </body>
 </html>

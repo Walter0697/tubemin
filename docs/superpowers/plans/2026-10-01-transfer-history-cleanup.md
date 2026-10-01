@@ -6,6 +6,10 @@
 
 **Architecture:** Add one transactional database operation that deletes the two archive categories and returns separate counts. Expose it through an authenticated POST route, then add a Transfers-page button/modal that appears only when archive rows exist and refreshes the table after success. No PeerTube, filesystem, or Navidrome operation is performed.
 
+The existing transfer-list response is extended with archive counts from both
+the `transfers` and `submissions` tables, because legacy `handed_off`
+submissions are not represented by transfer rows.
+
 **Tech Stack:** Rust, Axum, SQLx/SQLite, Minijinja, vanilla JavaScript, existing Tubemin dark-theme CSS, Docker Compose.
 
 ## Global Constraints
@@ -27,6 +31,7 @@
 **Interfaces:**
 - Produces `pub struct ArchivedTransferCleanup { pub deleted_transfers: u64, pub handed_off_submissions: u64 }`.
 - Produces `pub async fn clear_archived_transfer_history(pool: &SqlitePool) -> Result<ArchivedTransferCleanup, sqlx::Error>`.
+- Produces `pub async fn count_archived_transfer_history(pool: &SqlitePool) -> Result<(i64, i64), sqlx::Error>` for current archive counts.
 
 - [ ] **Step 1: Write the failing database test**
 
@@ -84,6 +89,7 @@ git commit -m "feat: add archived transfer history cleanup"
 - Adds `pub async fn clear_archived_transfers(RequireAuth(_user): RequireAuth, State(state): State<AppState>) -> impl IntoResponse`.
 - Adds POST route `/api/transfers/cleanup-archived`.
 - Returns `{ "deletedTransfers": number, "handedOffSubmissions": number }` on success and HTTP 500 with `{ "error": "archived transfer cleanup failed" }` on database failure.
+- Extends `GET /api/transfers` with `archiveCounts: { deletedTransfers, handedOffSubmissions }`.
 
 - [ ] **Step 1: Add handler tests for the success response and route protection**
 
@@ -123,7 +129,7 @@ git commit -m "feat: expose archived transfer cleanup endpoint"
 - Modify: `server/static/style.css`
 
 **Interfaces:**
-- The existing `/api/transfers` response remains unchanged.
+- The existing `/api/transfers` response retains its `transfers` array and adds `archiveCounts`.
 - The page adds a `Clear archived records` button with an accessible confirmation modal.
 - The page POSTs to `/api/transfers/cleanup-archived` only after confirmation.
 
@@ -133,7 +139,7 @@ Add an initially hidden archive toolbar/button and confirmation modal to `transf
 
 - [ ] **Step 2: Implement archive counting and rendering**
 
-In `transfers.js`, count rows where `item.state === 'deleted'` or `item.state === 'handed_off'`, render the button only when the count is nonzero, and include separate counts in the button/confirmation text.
+In `transfers.js`, use the API-provided archive counts, render the button only when either count is nonzero, and include separate counts in the button/confirmation text.
 
 - [ ] **Step 3: Implement confirmation and request flow**
 
