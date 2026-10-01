@@ -1078,8 +1078,8 @@ a.card.card-selected {
 /* Phone: modals scroll instead of overflowing the viewport */
 .transfer-history-table-wrap {
   overflow-x: auto;
-  background: var(--card-bg, #fff);
-  border: 1px solid var(--border, #e5e7eb);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 10px;
 }
 .transfer-history-table {
@@ -1090,7 +1090,7 @@ a.card.card-selected {
 .transfer-history-table th,
 .transfer-history-table td {
   padding: 12px 14px;
-  border-bottom: 1px solid var(--border, #e5e7eb);
+  border-bottom: 1px solid var(--border-subtle);
   text-align: left;
   vertical-align: top;
 }
@@ -1098,10 +1098,20 @@ a.card.card-selected {
   font-size: 0.78rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--muted, #6b7280);
+  color: var(--text-muted);
 }
 .transfer-history-table td {
   font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.transfer-history-table tbody tr {
+  transition: background 0.15s ease;
+}
+.transfer-history-table tbody tr:hover {
+  background: var(--surface-2);
+}
+.transfer-history-table tbody td:first-child {
+  color: var(--text);
 }
 .transfer-history-table tr:last-child td {
   border-bottom: 0;
