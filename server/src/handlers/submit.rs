@@ -364,6 +364,9 @@ mod tests {
         let config = Arc::new(Config {
             api_port: 3000,
             metube_url: metube_mock.uri(),
+            metube_update_url: None,
+            metube_update_token: None,
+            metube_auto_update_on_failure: false,
             downloads_dir: "/tmp/downloads".into(),
             peertube_import_dir: "/tmp/import".into(),
             database_url: "sqlite::memory:".into(),
@@ -495,6 +498,9 @@ mod tests {
         let config = Arc::new(Config {
             api_port: 3000,
             metube_url: metube_mock.uri(),
+            metube_update_url: None,
+            metube_update_token: None,
+            metube_auto_update_on_failure: false,
             downloads_dir: "/tmp/downloads".into(),
             peertube_import_dir: "/tmp/import".into(),
             database_url: "sqlite::memory:".into(),

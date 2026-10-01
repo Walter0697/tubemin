@@ -145,6 +145,9 @@ async fn main() -> anyhow::Result<()> {
         config.metube_url.clone(),
         pool.clone(),
         progress_map.clone(),
+        config.metube_update_url.clone(),
+        config.metube_update_token.clone(),
+        config.metube_auto_update_on_failure,
     );
 
     // Socket.IO listener for real-time MeTube download progress

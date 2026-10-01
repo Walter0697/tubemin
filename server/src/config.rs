@@ -10,6 +10,9 @@ pub enum AuthMode {
 pub struct Config {
     pub api_port: u16,
     pub metube_url: String,
+    pub metube_update_url: Option<String>,
+    pub metube_update_token: Option<String>,
+    pub metube_auto_update_on_failure: bool,
     pub downloads_dir: PathBuf,
     pub peertube_import_dir: PathBuf,
     pub database_url: String,
@@ -93,6 +96,15 @@ impl Config {
                 .unwrap_or_else(|_| "3000".into())
                 .parse()?,
             metube_url: std::env::var("METUBE_URL").unwrap_or_else(|_| "http://metube:8081".into()),
+            metube_update_url: std::env::var("METUBE_UPDATE_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            metube_update_token: std::env::var("METUBE_UPDATE_TOKEN")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            metube_auto_update_on_failure: std::env::var("METUBE_AUTO_UPDATE_ON_FAILURE")
+                .unwrap_or_else(|_| "false".into())
+                .parse()?,
             downloads_dir: PathBuf::from(
                 std::env::var("DOWNLOADS_DIR").unwrap_or_else(|_| "/downloads".into()),
             ),

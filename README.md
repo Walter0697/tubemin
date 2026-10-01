@@ -224,6 +224,9 @@ docker compose up --build --pull never -d tubemin
 | `DATABASE_URL` | yes | — | `sqlite:///data/tubemin.db` |
 | `TUBEMIN_SERVICE_ACCOUNTS_FILE` | no | `/data/service-accounts.toml` | Startup TOML manifest defining machine-to-machine accounts |
 | `METUBE_URL` | no | `http://metube:8081` | MeTube internal address |
+| `METUBE_UPDATE_URL` | no | — | Optional internal MeTube maintenance endpoint for yt-dlp update/restart |
+| `METUBE_UPDATE_TOKEN` | no | — | Bearer token for the optional MeTube maintenance endpoint |
+| `METUBE_AUTO_UPDATE_ON_FAILURE` | no | `false` | Request a MeTube yt-dlp update before retrying eligible download failures |
 | `DOWNLOADS_DIR` | no | `/downloads` | Where MeTube saves files |
 | `PEERTUBE_IMPORT_DIR` | no | `/peertube-import` | PeerTube watched folder |
 | `PEERTUBE_URL` | no | — | PeerTube internal address (enables upload) |

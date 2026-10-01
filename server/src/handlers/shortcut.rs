@@ -99,6 +99,9 @@ mod tests {
             config: Arc::new(Config {
                 api_port: 3000,
                 metube_url: "http://metube".into(),
+                metube_update_url: None,
+                metube_update_token: None,
+                metube_auto_update_on_failure: false,
                 downloads_dir: PathBuf::from("/tmp/downloads"),
                 peertube_import_dir: PathBuf::from("/tmp/import"),
                 database_url: "sqlite::memory:".into(),

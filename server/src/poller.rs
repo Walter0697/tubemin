@@ -17,6 +17,9 @@ pub fn start(
     metube_url: String,
     pool: Arc<SqlitePool>,
     progress: ProgressMap,
+    update_url: Option<String>,
+    update_token: Option<String>,
+    auto_update_on_failure: bool,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(5));
@@ -86,6 +89,22 @@ pub fn start(
                             );
                             continue;
                         }
+                        let mut updated_before_retry = false;
+                        if auto_update_on_failure {
+                            if let (Some(update_url), Some(update_token)) =
+                                (update_url.as_deref(), update_token.as_deref())
+                            {
+                                match crate::metube::request_update(update_url, update_token).await {
+                                    Ok(()) => {
+                                        updated_before_retry = wait_for_metube(&metube_url).await;
+                                        if !updated_before_retry {
+                                            warn!(url = %item.url, "MeTube did not become ready after yt-dlp update");
+                                        }
+                                    }
+                                    Err(e) => warn!(error = %e, url = %item.url, "MeTube update request failed; using normal retry"),
+                                }
+                            }
+                        }
                         match crate::db::claim_metube_retry(&pool, &item.url, MAX_DOWNLOAD_RETRIES)
                             .await
                         {
@@ -101,10 +120,11 @@ pub fn start(
                                         "failed to submit MeTube retry"
                                     );
                                 } else {
-                                    warn!(
-                                        url = %item.url,
-                                        "retrying failed MeTube download"
-                                    );
+                                    if updated_before_retry {
+                                        warn!(url = %item.url, "retrying failed MeTube download after yt-dlp update");
+                                    } else {
+                                        warn!(url = %item.url, "retrying failed MeTube download");
+                                    }
                                 }
                             }
                             Ok(false) => {}
@@ -150,6 +170,17 @@ pub fn start(
             }
         }
     })
+}
+
+async fn wait_for_metube(metube_url: &str) -> bool {
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    for _ in 0..30 {
+        if crate::metube::get_queue_state(metube_url).await.is_ok() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    false
 }
 
 #[cfg(test)]
