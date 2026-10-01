@@ -319,48 +319,6 @@ pub async fn list_transfers(pool: &SqlitePool) -> Result<Vec<TransferRow>, sqlx:
     .await
 }
 
-pub async fn count_archived_transfer_history(
-    pool: &SqlitePool,
-) -> Result<(i64, i64), sqlx::Error> {
-    let deleted_transfers = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM transfers WHERE state = 'deleted'",
-    )
-    .fetch_one(pool)
-    .await?;
-    let handed_off_submissions = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM submissions WHERE status = 'handed_off'",
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok((deleted_transfers, handed_off_submissions))
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ArchivedTransferCleanup {
-    pub deleted_transfers: u64,
-    pub handed_off_submissions: u64,
-}
-
-pub async fn clear_archived_transfer_history(
-    pool: &SqlitePool,
-) -> Result<ArchivedTransferCleanup, sqlx::Error> {
-    let mut tx = pool.begin().await?;
-    let deleted_transfers = sqlx::query("DELETE FROM transfers WHERE state = 'deleted'")
-        .execute(&mut *tx)
-        .await?
-        .rows_affected();
-    let handed_off_submissions =
-        sqlx::query("DELETE FROM submissions WHERE status = 'handed_off'")
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-    tx.commit().await?;
-    Ok(ArchivedTransferCleanup {
-        deleted_transfers,
-        handed_off_submissions,
-    })
-}
-
 pub async fn create_submission(
     pool: &SqlitePool,
     id: &str,
@@ -910,14 +868,14 @@ pub async fn list_submissions_owned(
 ) -> Result<Vec<Submission>, sqlx::Error> {
     if let Some(sub) = owner_sub {
         Ok(sqlx::query_as::<_, Submission>(
-            "SELECT * FROM submissions WHERE submitter_sub = ? ORDER BY submitted_at DESC",
+            "SELECT * FROM submissions WHERE submitter_sub = ? AND status NOT IN ('deleted', 'handed_off') ORDER BY submitted_at DESC",
         )
         .bind(sub)
         .fetch_all(pool)
         .await?)
     } else {
         Ok(sqlx::query_as::<_, Submission>(
-            "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? ORDER BY submitted_at DESC",
+            "SELECT * FROM submissions WHERE submitter_sub IS NULL AND submitter_display = ? AND status NOT IN ('deleted', 'handed_off') ORDER BY submitted_at DESC",
         )
         .bind(owner_display)
         .fetch_all(pool)
@@ -1181,63 +1139,6 @@ mod tests {
         let history = list_transfers(&pool).await.unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'transfer-submission'").fetch_one(&pool).await.unwrap(), 1);
-    }
-
-    #[tokio::test]
-    async fn clear_archived_transfer_history_removes_only_archive_states() {
-        let pool = test_pool().await;
-        for id in ["deleted-submission", "completed-submission", "failed-submission", "handed-off-submission"] {
-            create_submission(&pool, id, "https://example.com/video", None, None, false, Some(id), None, None, None, None)
-                .await
-                .unwrap();
-        }
-        sqlx::query("UPDATE submissions SET status = 'handed_off' WHERE id = 'handed-off-submission'")
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        for (id, submission_id, state) in [
-            ("deleted-transfer", "deleted-submission", "deleted"),
-            ("completed-transfer", "completed-submission", "completed"),
-            ("failed-transfer", "failed-submission", "failed"),
-        ] {
-            let transfer = TransferRow {
-                id: id.into(),
-                submission_id: submission_id.into(),
-                peertube_uuid: format!("uuid-{id}"),
-                service_account_id: "svc-test".into(),
-                consumer: "test".into(),
-                destination: "test".into(),
-                destination_ref: None,
-                source_title: Some(id.into()),
-                source_url: Some("https://example.com/video".into()),
-                state: state.into(),
-                output_size: None,
-                source_cleanup_state: "complete".into(),
-                peertube_delete_state: "complete".into(),
-                error: None,
-                retry_count: 0,
-                created_at: "2026-09-30T00:00:00Z".into(),
-                completed_at: None,
-                deleted_at: None,
-                updated_at: "2026-09-30T00:00:00Z".into(),
-            };
-            create_transfer(&pool, &transfer).await.unwrap();
-        }
-
-        assert_eq!(count_archived_transfer_history(&pool).await.unwrap(), (1, 1));
-        let result = clear_archived_transfer_history(&pool).await.unwrap();
-        assert_eq!(result.deleted_transfers, 1);
-        assert_eq!(result.handed_off_submissions, 1);
-        assert_eq!(list_transfers(&pool).await.unwrap().len(), 2);
-        assert_eq!(
-            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions")
-                .fetch_one(&pool)
-                .await
-                .unwrap(),
-            3
-        );
-        assert_eq!(count_archived_transfer_history(&pool).await.unwrap(), (0, 0));
     }
 
     #[tokio::test]

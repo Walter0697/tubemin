@@ -1,5 +1,9 @@
 # Transfer History Cleanup
 
+> Superseded: archived transfer rows remain visible on Transfers. Dashboard
+> filters out `deleted` and legacy `handed_off` submissions, so no destructive
+> cleanup action is needed.
+
 ## Goal
 
 Allow an authenticated Tubemin user to remove stale transfer-history rows whose

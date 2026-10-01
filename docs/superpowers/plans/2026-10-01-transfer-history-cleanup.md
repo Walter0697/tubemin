@@ -1,5 +1,9 @@
 # Transfer History Cleanup Implementation Plan
 
+> Superseded by the simpler dashboard-filtering design: transfer history is
+> retained permanently, and Dashboard excludes `deleted` and legacy
+> `handed_off` submissions. No cleanup endpoint or button is implemented.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add an authenticated Tubemin Transfers-page action that permanently removes only new `deleted` transfer rows and legacy Jellypik `handed_off` submission rows after confirmation.
