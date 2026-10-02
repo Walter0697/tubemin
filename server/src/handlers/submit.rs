@@ -183,6 +183,27 @@ async fn enqueue(
         .owner_display
         .as_deref()
         .map(normalize_submitter_tag);
+
+    // A URL can be submitted from more than one client, but MeTube's queue is
+    // global. Reuse the existing active pipeline instead of creating another
+    // pending row and downloading the same video twice. Error/interrupted rows
+    // intentionally fall through to the existing retry path below.
+    if let Ok(Some(existing)) = db::get_active_submission_by_url(&state.pool, &body.url).await {
+        tracing::info!(
+            url = %body.url,
+            submission_id = %existing.id,
+            status = %existing.status,
+            "submission already exists in active pipeline"
+        );
+        return (
+            StatusCode::OK,
+            Json(SubmitResponse {
+                status: "queued".into(),
+            }),
+        )
+            .into_response();
+    }
+
     let reused = db::reset_submission_to_pending(
         &state.pool,
         &body.url,
@@ -428,6 +449,42 @@ mod tests {
         resp.assert_status_ok();
         let body: serde_json::Value = resp.json();
         assert_eq!(body["status"], "queued");
+    }
+
+    #[tokio::test]
+    async fn duplicate_active_submission_does_not_create_or_resubmit() {
+        let (server, api_key, metube_mock, pool) = make_app().await;
+        let url = "https://www.youtube.com/watch?v=duplicate-active";
+
+        server
+            .post("/api/submit")
+            .add_header("X-API-Key", &api_key)
+            .json(&json!({"url": url}))
+            .await
+            .assert_status_ok();
+        server
+            .post("/api/submit")
+            .add_header("X-API-Key", &api_key)
+            .json(&json!({"url": url}))
+            .await
+            .assert_status_ok();
+
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM submissions WHERE url = ?")
+            .bind(url)
+            .fetch_one(pool.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(
+            metube_mock
+                .received_requests()
+                .await
+                .unwrap()
+                .iter()
+                .filter(|request| request.url.path() == "/add")
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]

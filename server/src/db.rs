@@ -830,6 +830,24 @@ pub async fn get_submission_by_url(
     .await
 }
 
+/// Return the newest submission for a URL that is already part of the active
+/// download/import pipeline. Active rows must not be submitted to MeTube a
+/// second time: MeTube has a single global queue, while TubeMin can receive
+/// the same URL from multiple clients.
+pub async fn get_active_submission_by_url(
+    pool: &SqlitePool,
+    url: &str,
+) -> Result<Option<Submission>, sqlx::Error> {
+    sqlx::query_as::<_, Submission>(
+        "SELECT * FROM submissions
+         WHERE url = ? AND status IN ('pending', 'downloading', 'imported', 'transcoding', 'complete')
+         ORDER BY submitted_at DESC LIMIT 1",
+    )
+    .bind(url)
+    .fetch_optional(pool)
+    .await
+}
+
 /// Record which download path (yt-dlp / ffmpeg-retry) is handling a direct download.
 pub async fn set_download_method(
     pool: &SqlitePool,
@@ -1077,6 +1095,53 @@ mod tests {
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "pending");
+    }
+
+    #[tokio::test]
+    async fn active_submission_lookup_ignores_failed_rows() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "failed",
+            "https://example.com/video",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE submissions SET status = 'error' WHERE id = 'failed'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        create_submission(
+            &pool,
+            "active",
+            "https://example.com/video",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let submission = get_active_submission_by_url(&pool, "https://example.com/video")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(submission.id, "active");
+        assert_eq!(submission.status, "pending");
     }
 
     #[tokio::test]

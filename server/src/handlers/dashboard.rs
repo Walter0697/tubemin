@@ -37,9 +37,13 @@ pub async fn dashboard(
         .and_then(|v| v.to_str().ok())
         .unwrap_or("http");
 
+    // PEERTUBE_HOST is the Host header used for TubeMin's internal API
+    // requests. Browser clients need the public/browser-reachable domain,
+    // which is PEERTUBE_DOMAIN (for local dev this is localhost:9000 while
+    // PEERTUBE_HOST is localhost:7006).
     let peertube_base = state
         .config
-        .peertube_host
+        .peertube_domain
         .as_ref()
         .map(|h| format!("{}://{}", scheme, h))
         .unwrap_or_default();
