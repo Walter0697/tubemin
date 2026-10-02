@@ -1,9 +1,10 @@
 use crate::progress::ProgressMap;
+use chrono::Utc;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 const MAX_DOWNLOAD_RETRIES: i64 = 3;
 
@@ -27,10 +28,17 @@ pub fn start(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(5));
+        let startup_at = Utc::now().to_rfc3339();
+        let mut startup_recovery_done = false;
         loop {
             ticker.tick().await;
             match crate::metube::get_queue_state(&metube_url).await {
                 Ok(state) => {
+                    if !startup_recovery_done {
+                        recover_pending_metube_submissions(&pool, &metube_url, &state, &startup_at)
+                            .await;
+                        startup_recovery_done = true;
+                    }
                     let live: HashSet<String> = state
                         .active
                         .iter()
@@ -183,6 +191,42 @@ pub fn start(
             }
         }
     })
+}
+
+async fn recover_pending_metube_submissions(
+    pool: &SqlitePool,
+    metube_url: &str,
+    state: &crate::metube::QueueState,
+    startup_at: &str,
+) {
+    let known_urls: HashSet<&str> = state
+        .active
+        .iter()
+        .chain(state.pending.iter())
+        .map(|item| item.url.as_str())
+        .chain(state.errored.iter().map(|item| item.url.as_str()))
+        .chain(state.finished.iter().map(|item| item.url.as_str()))
+        .collect();
+
+    let urls = match crate::db::pending_metube_urls_before(pool, startup_at).await {
+        Ok(urls) => urls,
+        Err(error) => {
+            error!(error = %error, "startup MeTube recovery database lookup failed");
+            return;
+        }
+    };
+
+    for url in urls {
+        if known_urls.contains(url.as_str()) {
+            continue;
+        }
+        match crate::metube::submit(metube_url, &url).await {
+            Ok(()) => info!(url = %url, "startup recovery resubmitted pending MeTube download"),
+            Err(error) => {
+                warn!(error = %error, url = %url, "startup recovery could not resubmit MeTube download")
+            }
+        }
+    }
 }
 
 async fn wait_for_metube(metube_url: &str) -> bool {

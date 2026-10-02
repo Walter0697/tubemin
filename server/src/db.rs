@@ -160,9 +160,7 @@ pub async fn touch_service_account(
     Ok(())
 }
 
-pub async fn active_catalog_submissions(
-    pool: &SqlitePool,
-) -> Result<Vec<Submission>, sqlx::Error> {
+pub async fn active_catalog_submissions(pool: &SqlitePool) -> Result<Vec<Submission>, sqlx::Error> {
     sqlx::query_as::<_, Submission>(
         "SELECT * FROM submissions
          WHERE peertube_uuid IS NOT NULL AND status != 'deleted'
@@ -201,10 +199,7 @@ pub async fn set_submission_status(
     Ok(result.rows_affected() > 0)
 }
 
-pub async fn create_transfer(
-    pool: &SqlitePool,
-    transfer: &TransferRow,
-) -> Result<(), sqlx::Error> {
+pub async fn create_transfer(pool: &SqlitePool, transfer: &TransferRow) -> Result<(), sqlx::Error> {
     sqlx::query(
         "INSERT INTO transfers
             (id, submission_id, peertube_uuid, service_account_id, consumer,
@@ -436,7 +431,6 @@ pub async fn is_handed_off_by_filename(
     Ok(status.as_deref() == Some("handed_off"))
 }
 
-
 pub async fn delete_submissions_owned(
     pool: &SqlitePool,
     ids: &[String],
@@ -494,9 +488,7 @@ pub async fn delete_submissions_by_peertube_uuids(
     }
 
     let mut tx = pool.begin().await?;
-    let mut select = sqlx::QueryBuilder::new(
-        "SELECT id FROM submissions WHERE peertube_uuid IN (",
-    );
+    let mut select = sqlx::QueryBuilder::new("SELECT id FROM submissions WHERE peertube_uuid IN (");
     {
         let mut separated = select.separated(", ");
         for uuid in uuids {
@@ -504,10 +496,7 @@ pub async fn delete_submissions_by_peertube_uuids(
         }
     }
     select.push(")");
-    let rows: Vec<(String,)> = select
-        .build_query_as()
-        .fetch_all(&mut *tx)
-        .await?;
+    let rows: Vec<(String,)> = select.build_query_as().fetch_all(&mut *tx).await?;
     let ids = rows.into_iter().map(|(id,)| id).collect::<Vec<_>>();
 
     let mut delete = sqlx::QueryBuilder::new("DELETE FROM submissions WHERE peertube_uuid IN (");
@@ -584,6 +573,23 @@ pub async fn claim_metube_retry(
     .execute(pool)
     .await?;
     Ok(result.rows_affected() > 0)
+}
+
+/// Return pre-existing pending MeTube submissions that need startup recovery.
+/// Direct downloads and rows with a recorded filename are handled elsewhere.
+pub async fn pending_metube_urls_before(
+    pool: &SqlitePool,
+    startup_at: &str,
+) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT url FROM submissions
+         WHERE status = 'pending' AND is_direct = 0 AND filename IS NULL
+           AND submitted_at < ?
+         ORDER BY submitted_at ASC",
+    )
+    .bind(startup_at)
+    .fetch_all(pool)
+    .await
 }
 
 pub async fn mark_downloading(pool: &SqlitePool, url: &str) -> Result<(), sqlx::Error> {
@@ -896,12 +902,13 @@ pub async fn list_submissions(pool: &SqlitePool) -> Result<Vec<Submission>, sqlx
     )
 }
 
-pub async fn all_peertube_uuids(pool: &SqlitePool) -> Result<std::collections::HashSet<String>, sqlx::Error> {
-    let rows: Vec<(String,)> = sqlx::query_as(
-        "SELECT peertube_uuid FROM submissions WHERE peertube_uuid IS NOT NULL",
-    )
-    .fetch_all(pool)
-    .await?;
+pub async fn all_peertube_uuids(
+    pool: &SqlitePool,
+) -> Result<std::collections::HashSet<String>, sqlx::Error> {
+    let rows: Vec<(String,)> =
+        sqlx::query_as("SELECT peertube_uuid FROM submissions WHERE peertube_uuid IS NOT NULL")
+            .fetch_all(pool)
+            .await?;
     Ok(rows.into_iter().map(|(uuid,)| uuid).collect())
 }
 
@@ -1098,8 +1105,36 @@ mod tests {
     #[tokio::test]
     async fn active_catalog_excludes_deleted_submissions() {
         let pool = test_pool().await;
-        create_submission(&pool, "active", "https://example.com/active", None, None, false, Some("Active"), None, None, None, None).await.unwrap();
-        create_submission(&pool, "deleted", "https://example.com/deleted", None, None, false, Some("Deleted"), None, None, None, None).await.unwrap();
+        create_submission(
+            &pool,
+            "active",
+            "https://example.com/active",
+            None,
+            None,
+            false,
+            Some("Active"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        create_submission(
+            &pool,
+            "deleted",
+            "https://example.com/deleted",
+            None,
+            None,
+            false,
+            Some("Deleted"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         sqlx::query("UPDATE submissions SET peertube_uuid = ?, status = ? WHERE id = ?")
             .bind("uuid-active")
             .bind("complete")
@@ -1116,13 +1151,30 @@ mod tests {
             .unwrap();
 
         let rows = active_catalog_submissions(&pool).await.unwrap();
-        assert_eq!(rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(), vec!["active"]);
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            vec!["active"]
+        );
     }
 
     #[tokio::test]
     async fn transfer_history_keeps_deleted_submission() {
         let pool = test_pool().await;
-        create_submission(&pool, "transfer-submission", "https://example.com/transfer", None, None, false, Some("Transferred"), None, None, None, None).await.unwrap();
+        create_submission(
+            &pool,
+            "transfer-submission",
+            "https://example.com/transfer",
+            None,
+            None,
+            false,
+            Some("Transferred"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         sqlx::query("UPDATE submissions SET peertube_uuid = ?, status = 'deleted' WHERE id = ?")
             .bind("uuid-transfer")
             .bind("transfer-submission")
@@ -1155,31 +1207,87 @@ mod tests {
 
         let history = list_transfers(&pool).await.unwrap();
         assert_eq!(history.len(), 1);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'transfer-submission'").fetch_one(&pool).await.unwrap(), 1);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM submissions WHERE id = 'transfer-submission'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+            1
+        );
     }
 
     #[tokio::test]
     async fn submission_status_can_be_updated_by_peer_tube_uuid() {
         let pool = test_pool().await;
-        create_submission(&pool, "state-submission", "https://example.com/state", None, None, false, None, None, None, None, None).await.unwrap();
-        sqlx::query("UPDATE submissions SET peertube_uuid = 'uuid-state' WHERE id = 'state-submission'")
-            .execute(&pool)
-            .await
-            .unwrap();
+        create_submission(
+            &pool,
+            "state-submission",
+            "https://example.com/state",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE submissions SET peertube_uuid = 'uuid-state' WHERE id = 'state-submission'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
 
-        assert!(set_submission_status(&pool, "uuid-state", "processing").await.unwrap());
-        let status = sqlx::query_scalar::<_, String>("SELECT status FROM submissions WHERE id = 'state-submission'")
-            .fetch_one(&pool)
+        assert!(set_submission_status(&pool, "uuid-state", "processing")
             .await
-            .unwrap();
+            .unwrap());
+        let status = sqlx::query_scalar::<_, String>(
+            "SELECT status FROM submissions WHERE id = 'state-submission'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(status, "processing");
     }
 
     #[tokio::test]
     async fn cleanup_deletes_rows_by_peertube_uuid_only() {
         let pool = test_pool().await;
-        create_submission(&pool, "keep", "https://example.com/keep", None, None, false, None, None, None, None, None).await.unwrap();
-        create_submission(&pool, "remove", "https://example.com/remove", None, None, false, None, None, None, None, None).await.unwrap();
+        create_submission(
+            &pool,
+            "keep",
+            "https://example.com/keep",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        create_submission(
+            &pool,
+            "remove",
+            "https://example.com/remove",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
         sqlx::query("UPDATE submissions SET peertube_uuid = ? WHERE id = ?")
             .bind("uuid-keep")
             .bind("keep")
@@ -1193,17 +1301,25 @@ mod tests {
             .await
             .unwrap();
 
-        let deleted = delete_submissions_by_peertube_uuids(&pool, &["uuid-remove".into()]).await.unwrap();
+        let deleted = delete_submissions_by_peertube_uuids(&pool, &["uuid-remove".into()])
+            .await
+            .unwrap();
 
         assert_eq!(deleted, vec!["remove"]);
-        assert!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'keep'")
-            .fetch_one(&pool)
-            .await
-            .unwrap() == 1);
-        assert!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'remove'")
-            .fetch_one(&pool)
-            .await
-            .unwrap() == 0);
+        assert!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'keep'")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                == 1
+        );
+        assert!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM submissions WHERE id = 'remove'")
+                .fetch_one(&pool)
+                .await
+                .unwrap()
+                == 0
+        );
     }
 
     #[tokio::test]
@@ -1242,10 +1358,12 @@ mod tests {
             HandoffItemState::AlreadyClaimed
         );
         assert_eq!(
-            sqlx::query_scalar::<_, String>("SELECT status FROM submissions WHERE id = 'handoff-id'")
-                .fetch_one(&pool)
-                .await
-                .unwrap(),
+            sqlx::query_scalar::<_, String>(
+                "SELECT status FROM submissions WHERE id = 'handoff-id'"
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
             "handed_off"
         );
     }
@@ -1376,17 +1494,18 @@ mod tests {
     }
 
     async fn create_basic(pool: &SqlitePool, id: &str, url: &str) {
-        create_submission(pool, id, url, None, None, false, None, None, None, None, None)
-            .await
-            .unwrap();
+        create_submission(
+            pool, id, url, None, None, false, None, None, None, None, None,
+        )
+        .await
+        .unwrap();
         // submitted_at has second precision in RFC3339; force distinct ordering
         sqlx::query("UPDATE submissions SET submitted_at = ? WHERE id = ?")
             .bind(format!("2026-01-01T00:00:{:02}Z", {
-                let n: i64 =
-                    sqlx::query_scalar("SELECT COUNT(*) FROM submissions")
-                        .fetch_one(pool)
-                        .await
-                        .unwrap();
+                let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM submissions")
+                    .fetch_one(pool)
+                    .await
+                    .unwrap();
                 n
             }))
             .bind(id)
@@ -1416,12 +1535,11 @@ mod tests {
             assert!(claim_metube_retry(&pool, "https://example.com/retry", 3)
                 .await
                 .unwrap());
-            let retries: i64 = sqlx::query_scalar(
-                "SELECT download_retries FROM submissions WHERE id = 'retry'",
-            )
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+            let retries: i64 =
+                sqlx::query_scalar("SELECT download_retries FROM submissions WHERE id = 'retry'")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
             assert_eq!(retries, expected);
             sqlx::query("UPDATE submissions SET status = 'error' WHERE id = 'retry'")
                 .execute(&pool)
@@ -1432,6 +1550,51 @@ mod tests {
         assert!(!claim_metube_retry(&pool, "https://example.com/retry", 3)
             .await
             .unwrap());
+    }
+
+    #[tokio::test]
+    async fn pending_metube_urls_before_startup_are_recoverable() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "metube-pending",
+            "https://example.com/metube-pending",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        create_submission(
+            &pool,
+            "direct-pending",
+            "https://example.com/direct-pending",
+            None,
+            None,
+            true,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE submissions SET submitted_at = '2026-10-01T00:00:00Z' WHERE id = 'metube-pending'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let urls = pending_metube_urls_before(&pool, "2026-10-02T00:00:00Z")
+            .await
+            .unwrap();
+
+        assert_eq!(urls, vec!["https://example.com/metube-pending"]);
     }
 
     #[tokio::test]
@@ -1456,22 +1619,32 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(!file_ready_for_import(&pool, "video.webm", false).await.unwrap());
+        assert!(!file_ready_for_import(&pool, "video.webm", false)
+            .await
+            .unwrap());
 
         set_filename_by_url(&pool, "https://example.com/metube", "video.webm")
             .await
             .unwrap();
-        assert!(file_ready_for_import(&pool, "video.webm", false).await.unwrap());
+        assert!(file_ready_for_import(&pool, "video.webm", false)
+            .await
+            .unwrap());
     }
 
     #[tokio::test]
     async fn file_ready_for_import_accepts_completion_sidecar_after_metube_history_loss() {
         let pool = test_pool().await;
         create_basic(&pool, "stuck", "https://example.com/stuck").await;
-        mark_downloading(&pool, "https://example.com/stuck").await.unwrap();
+        mark_downloading(&pool, "https://example.com/stuck")
+            .await
+            .unwrap();
 
-        assert!(!file_ready_for_import(&pool, "stuck.mp4", false).await.unwrap());
-        assert!(file_ready_for_import(&pool, "stuck.mp4", true).await.unwrap());
+        assert!(!file_ready_for_import(&pool, "stuck.mp4", false)
+            .await
+            .unwrap());
+        assert!(file_ready_for_import(&pool, "stuck.mp4", true)
+            .await
+            .unwrap());
     }
 
     // Regression: downloads finishing out of submission order must not swap rows.
@@ -1480,8 +1653,12 @@ mod tests {
         let pool = test_pool().await;
         create_basic(&pool, "older", "https://example.com/older").await;
         create_basic(&pool, "newer", "https://example.com/newer").await;
-        mark_downloading(&pool, "https://example.com/older").await.unwrap();
-        mark_downloading(&pool, "https://example.com/newer").await.unwrap();
+        mark_downloading(&pool, "https://example.com/older")
+            .await
+            .unwrap();
+        mark_downloading(&pool, "https://example.com/newer")
+            .await
+            .unwrap();
         set_filename_by_url(&pool, "https://example.com/newer", "newer.webm")
             .await
             .unwrap();
@@ -1493,7 +1670,10 @@ mod tests {
         assert_eq!(newer_status, "imported");
         assert_eq!(newer_file.as_deref(), Some("newer.webm"));
         let (older_status, older_file) = status_of(&pool, "older").await;
-        assert_eq!(older_status, "downloading", "older row must not claim the file");
+        assert_eq!(
+            older_status, "downloading",
+            "older row must not claim the file"
+        );
         assert_eq!(older_file, None);
     }
 
@@ -1502,8 +1682,12 @@ mod tests {
         let pool = test_pool().await;
         create_basic(&pool, "older", "https://example.com/older").await;
         create_basic(&pool, "newer", "https://example.com/newer").await;
-        mark_downloading(&pool, "https://example.com/older").await.unwrap();
-        mark_downloading(&pool, "https://example.com/newer").await.unwrap();
+        mark_downloading(&pool, "https://example.com/older")
+            .await
+            .unwrap();
+        mark_downloading(&pool, "https://example.com/newer")
+            .await
+            .unwrap();
 
         mark_imported(&pool, "mystery.webm").await.unwrap();
 
