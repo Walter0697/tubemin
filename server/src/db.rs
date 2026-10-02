@@ -1,6 +1,7 @@
 use chrono::Utc;
 use serde::Serialize;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
+use std::collections::HashMap;
 use std::str::FromStr;
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -88,7 +89,55 @@ pub async fn init(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let opts = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
     let pool = SqlitePool::connect_with(opts).await?;
     sqlx::migrate!("./migrations").run(&pool).await?;
+    backfill_video_keys(&pool).await?;
     Ok(pool)
+}
+
+/// Fill `video_key` for rows created before the column existed. Rows whose
+/// URL has no key (non-YouTube) are re-checked on each start; that is cheap
+/// and keeps the logic in one place.
+async fn backfill_video_keys(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+    let rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, url FROM submissions WHERE video_key IS NULL")
+            .fetch_all(pool)
+            .await?;
+    for (id, url) in rows {
+        if let Some(key) = crate::url_validator::video_key(&url) {
+            sqlx::query("UPDATE submissions SET video_key = ? WHERE id = ?")
+                .bind(key)
+                .bind(id)
+                .execute(pool)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Latest submission status for each video key, used by the playlist picker
+/// to flag videos Tubemin already knows about.
+pub async fn latest_status_by_video_keys(
+    pool: &SqlitePool,
+    keys: &[String],
+) -> Result<HashMap<String, String>, sqlx::Error> {
+    let mut statuses = HashMap::new();
+    if keys.is_empty() {
+        return Ok(statuses);
+    }
+    let placeholders = vec!["?"; keys.len()].join(", ");
+    let sql = format!(
+        "SELECT video_key, status FROM submissions
+         WHERE video_key IN ({placeholders})
+         ORDER BY submitted_at ASC"
+    );
+    let mut query = sqlx::query_as::<_, (String, String)>(&sql);
+    for key in keys {
+        query = query.bind(key);
+    }
+    // Ascending order: later rows overwrite earlier ones, leaving the latest.
+    for (key, status) in query.fetch_all(pool).await? {
+        statuses.insert(key, status);
+    }
+    Ok(statuses)
 }
 
 pub async fn upsert_service_account(
@@ -329,10 +378,11 @@ pub async fn create_submission(
 ) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
-        "INSERT INTO submissions (id, url, source_url, source, title, status, is_direct, api_key_id, submitter_sub, submitter_display, submitter_tag, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO submissions (id, url, video_key, source_url, source, title, status, is_direct, api_key_id, submitter_sub, submitter_display, submitter_tag, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(id)
     .bind(url)
+    .bind(crate::url_validator::video_key(url))
     .bind(source_url)
     .bind(source)
     .bind(title)
@@ -840,10 +890,13 @@ pub async fn get_active_submission_by_url(
 ) -> Result<Option<Submission>, sqlx::Error> {
     sqlx::query_as::<_, Submission>(
         "SELECT * FROM submissions
-         WHERE url = ? AND status IN ('pending', 'downloading', 'imported', 'transcoding', 'complete')
+         WHERE (url = ? OR (? IS NOT NULL AND video_key = ?))
+           AND status IN ('pending', 'downloading', 'imported', 'transcoding', 'complete')
          ORDER BY submitted_at DESC LIMIT 1",
     )
     .bind(url)
+    .bind(crate::url_validator::video_key(url))
+    .bind(crate::url_validator::video_key(url))
     .fetch_optional(pool)
     .await
 }
@@ -2065,5 +2118,71 @@ mod tests {
         assert!(deleted.is_empty());
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn backfills_video_keys_for_existing_youtube_rows() {
+        let pool = test_pool().await;
+        for (id, url) in [
+            ("yt", "https://youtu.be/dQw4w9WgXcQ?t=5"),
+            ("other", "https://vimeo.com/12345"),
+        ] {
+            sqlx::query(
+                "INSERT INTO submissions (id, url, status, submitted_at, updated_at)
+                 VALUES (?, ?, 'complete', '2026-01-01', '2026-01-01')",
+            )
+            .bind(id)
+            .bind(url)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        backfill_video_keys(&pool).await.unwrap();
+        let keys: Vec<(String, Option<String>)> =
+            sqlx::query_as("SELECT id, video_key FROM submissions ORDER BY id")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            keys,
+            vec![
+                ("other".to_string(), None),
+                ("yt".to_string(), Some("youtube:dQw4w9WgXcQ".to_string())),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn latest_status_by_video_keys_returns_most_recent_row() {
+        let pool = test_pool().await;
+        for (id, key, status, at) in [
+            ("old", "youtube:aaa", "deleted", "2026-01-01T00:00:00Z"),
+            ("new", "youtube:aaa", "error", "2026-02-01T00:00:00Z"),
+            ("b", "youtube:bbb", "complete", "2026-01-15T00:00:00Z"),
+        ] {
+            sqlx::query(
+                "INSERT INTO submissions (id, url, video_key, status, submitted_at, updated_at)
+                 VALUES (?, ?, ?, ?, ?, ?)",
+            )
+            .bind(id)
+            .bind(format!("https://example.com/{id}"))
+            .bind(key)
+            .bind(status)
+            .bind(at)
+            .bind(at)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let statuses = latest_status_by_video_keys(
+            &pool,
+            &["youtube:aaa".into(), "youtube:bbb".into(), "youtube:ccc".into()],
+        )
+        .await
+        .unwrap();
+        assert_eq!(statuses.get("youtube:aaa").map(String::as_str), Some("error"));
+        assert_eq!(statuses.get("youtube:bbb").map(String::as_str), Some("complete"));
+        assert!(!statuses.contains_key("youtube:ccc"));
+        assert!(latest_status_by_video_keys(&pool, &[]).await.unwrap().is_empty());
     }
 }

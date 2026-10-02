@@ -159,10 +159,24 @@ pub async fn submit_web(
 
 async fn enqueue(
     state: AppState,
-    body: SubmitRequest,
+    mut body: SubmitRequest,
     submitter: Submitter,
     default_source: &str,
 ) -> Response {
+    // Submissions are always single videos. A YouTube URL that names a video is
+    // reduced to its canonical watch URL, so playlist parameters never reach
+    // MeTube and the stored URL matches what MeTube reports back. Playlist-only
+    // URLs go through the dashboard picker instead.
+    if let Some(video_id) = crate::url_validator::youtube_video_id(&body.url) {
+        body.url = crate::url_validator::canonical_youtube_url(&video_id);
+    } else if crate::url_validator::youtube_playlist_id(&body.url).is_some() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"error": "Playlist URLs are not queued directly — add it from the Tubemin dashboard to pick which videos to download"})),
+        )
+            .into_response();
+    }
+
     let source = normalize_optional_text(body.source.as_deref())
         .or_else(|| Some(default_source.to_string()));
 
@@ -485,6 +499,96 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    fn metube_add_urls(requests: &[wiremock::Request]) -> Vec<String> {
+        requests
+            .iter()
+            .filter(|request| request.url.path() == "/add")
+            .map(|request| {
+                let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
+                body["url"].as_str().unwrap().to_string()
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn playlist_only_url_is_rejected_without_submitting() {
+        let (server, api_key, metube_mock, pool) = make_app().await;
+        let resp = server
+            .post("/api/submit")
+            .add_header("X-API-Key", &api_key)
+            .json(&json!({"url": "https://www.youtube.com/playlist?list=PL123"}))
+            .await;
+        resp.assert_status(StatusCode::UNPROCESSABLE_ENTITY);
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM submissions")
+            .fetch_one(pool.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        assert!(metube_add_urls(&metube_mock.received_requests().await.unwrap()).is_empty());
+    }
+
+    #[tokio::test]
+    async fn video_in_playlist_is_submitted_as_single_canonical_video() {
+        let (server, api_key, metube_mock, pool) = make_app().await;
+        server
+            .post("/api/submit")
+            .add_header("X-API-Key", &api_key)
+            .json(&json!({"url": "https://youtube.com/watch?v=dQw4w9WgXcQ&list=RDdQw4w9WgXcQ&start_radio=1"}))
+            .await
+            .assert_status_ok();
+
+        let canonical = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+        let (url, key): (String, Option<String>) =
+            sqlx::query_as("SELECT url, video_key FROM submissions")
+                .fetch_one(pool.as_ref())
+                .await
+                .unwrap();
+        assert_eq!(url, canonical);
+        assert_eq!(key.as_deref(), Some("youtube:dQw4w9WgXcQ"));
+        assert_eq!(
+            metube_add_urls(&metube_mock.received_requests().await.unwrap()),
+            vec![canonical.to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_is_detected_across_youtube_url_variants() {
+        let (server, api_key, metube_mock, pool) = make_app().await;
+        // A row stored before URLs were canonicalised still matches by key.
+        db::create_submission(
+            &pool,
+            "legacy",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=30",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        for url in [
+            "https://youtu.be/dQw4w9WgXcQ",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123&index=4",
+        ] {
+            server
+                .post("/api/submit")
+                .add_header("X-API-Key", &api_key)
+                .json(&json!({"url": url}))
+                .await
+                .assert_status_ok();
+        }
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM submissions")
+            .fetch_one(pool.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(metube_add_urls(&metube_mock.received_requests().await.unwrap()).is_empty());
     }
 
     #[tokio::test]

@@ -271,6 +271,7 @@ async fn main() -> anyhow::Result<()> {
             post(handlers::delete_submissions),
         )
         .route("/api/submissions/create", post(handlers::submit_web))
+        .route("/api/playlist/preview", post(handlers::playlist_preview))
         .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
