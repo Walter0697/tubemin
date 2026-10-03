@@ -61,6 +61,26 @@
     </div>
   </div>
 
+  <div class="modal-overlay" id="playlist-modal" hidden>
+    <div class="modal-box playlist-modal-box" role="dialog" aria-modal="true" aria-labelledby="playlist-title">
+      <h2 class="playlist-title" id="playlist-title">Playlist</h2>
+      <p class="playlist-note" id="playlist-note" hidden></p>
+      <div class="playlist-toolbar">
+        <span class="playlist-count" id="playlist-count"></span>
+        <div class="playlist-toolbar-actions">
+          <button type="button" class="btn-secondary" id="playlist-all-btn">Select all</button>
+          <button type="button" class="btn-secondary" id="playlist-none-btn">None</button>
+        </div>
+      </div>
+      <ul class="playlist-list" id="playlist-list"></ul>
+      <p class="error" id="playlist-error" hidden></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="playlist-cancel-btn">Cancel</button>
+        <button type="button" id="playlist-submit-btn">Add selected</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="confirm-modal" hidden>
     <div class="modal-box">
       <p class="modal-msg" id="modal-msg"></p>
@@ -681,12 +701,50 @@
     const addError    = document.getElementById('add-error');
     const addSubmit   = document.getElementById('add-submit-btn');
 
+    // Set after a failed playlist preview so the next "Add" submits only the
+    // video named in the URL (the server strips the playlist parameters).
+    let skipPlaylistPreview = false;
+
+    function setAddSubmitLabel() {
+      addSubmit.textContent = skipPlaylistPreview ? 'Add this video only' : 'Add';
+    }
+
     function openAddModal() {
       addUrlInput.value = '';
       addError.hidden = true;
       addSubmit.disabled = false;
+      skipPlaylistPreview = false;
+      setAddSubmitLabel();
       addModal.hidden = false;
       addUrlInput.focus();
+    }
+
+    addUrlInput.addEventListener('input', () => {
+      skipPlaylistPreview = false;
+      setAddSubmitLabel();
+    });
+
+    function youtubeLink(url) {
+      let parsed;
+      try { parsed = new URL(url); } catch { return null; }
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+      if (!['youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'youtu.be'].includes(host)) {
+        return null;
+      }
+      const hasVideo = host === 'youtu.be'
+        ? parsed.pathname.length > 1
+        : parsed.searchParams.has('v') || /^\/(shorts|embed|live|v)\/./.test(parsed.pathname);
+      return { playlist: parsed.searchParams.get('list'), hasVideo };
+    }
+
+    async function postSubmission(url) {
+      const res = await fetch('/api/submissions/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      if (res.ok) return null;
+      try { return (await res.json()).error || 'Submission failed'; } catch { return 'Submission failed'; }
     }
 
     function closeAddModal() {
@@ -705,18 +763,35 @@
       if (!url) return;
       addError.hidden = true;
       addSubmit.disabled = true;
+      const link = youtubeLink(url);
       try {
-        const res = await fetch('/api/submissions/create', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url }),
-        });
-        if (res.ok) {
+        if (link && link.playlist && !skipPlaylistPreview) {
+          addSubmit.textContent = 'Loading playlist…';
+          const res = await fetch('/api/playlist/preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+          });
+          if (res.ok) {
+            closeAddModal();
+            openPlaylistModal(await res.json());
+            return;
+          }
+          let msg = 'Could not read the playlist';
+          try { msg = (await res.json()).error || msg; } catch {}
+          if (link.hasVideo) {
+            skipPlaylistPreview = true;
+            msg += ' — you can still add just this video.';
+          }
+          addError.textContent = msg;
+          addError.hidden = false;
+          return;
+        }
+        const msg = await postSubmission(url);
+        if (msg === null) {
           closeAddModal();
           navigate(1, currentStatus, currentSearch);
         } else {
-          let msg = 'Submission failed';
-          try { msg = (await res.json()).error || msg; } catch {}
           addError.textContent = msg;
           addError.hidden = false;
         }
@@ -725,7 +800,141 @@
         addError.hidden = false;
       } finally {
         addSubmit.disabled = false;
+        setAddSubmitLabel();
       }
+    });
+
+    // ── Playlist picker ───────────────────────────────────────────────────────
+    const playlistModal  = document.getElementById('playlist-modal');
+    const playlistList   = document.getElementById('playlist-list');
+    const playlistCount  = document.getElementById('playlist-count');
+    const playlistError  = document.getElementById('playlist-error');
+    const playlistSubmit = document.getElementById('playlist-submit-btn');
+    let playlistBusy = false;
+
+    const PLAYLIST_TAGS = {
+      active: 'Already in Tubemin',
+      transferred: 'Already transferred',
+      failed: 'Previously failed',
+    };
+
+    function formatDuration(seconds) {
+      if (seconds == null) return '';
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = String(seconds % 60).padStart(2, '0');
+      return h ? h + ':' + String(m).padStart(2, '0') + ':' + s : m + ':' + s;
+    }
+
+    function playlistCheckboxes() {
+      return [...playlistList.querySelectorAll('input[type="checkbox"]')];
+    }
+
+    function updatePlaylistCount() {
+      const boxes = playlistCheckboxes();
+      const selectable = boxes.filter(b => !b.disabled);
+      const checked = selectable.filter(b => b.checked).length;
+      playlistCount.textContent = checked + ' of ' + selectable.length + ' selected';
+      playlistSubmit.disabled = playlistBusy || checked === 0;
+      playlistSubmit.textContent = checked > 1 ? 'Add ' + checked + ' videos' : 'Add selected';
+    }
+
+    function openPlaylistModal(preview) {
+      document.getElementById('playlist-title').textContent = preview.title || 'Playlist';
+      const note = document.getElementById('playlist-note');
+      note.textContent = 'Showing the first ' + preview.entries.length + ' videos of this playlist.';
+      note.hidden = !preview.truncated;
+      playlistError.hidden = true;
+      playlistList.innerHTML = '';
+
+      for (const entry of preview.entries) {
+        const disabled = !entry.available || entry.existing_status === 'active';
+        const isSelected = entry.video_id === preview.selected_video_id;
+        const tags = [];
+        if (!entry.available) tags.push('Unavailable');
+        else if (entry.existing_status) tags.push(PLAYLIST_TAGS[entry.existing_status]);
+        if (isSelected) tags.push('From your link');
+
+        const li = document.createElement('li');
+        li.className = 'playlist-item' + (disabled ? ' is-disabled' : '') + (isSelected ? ' is-selected' : '');
+        li.innerHTML =
+          '<label>' +
+            '<input type="checkbox">' +
+            '<img class="playlist-thumb" loading="lazy" alt="" src="' + escHtml(entry.thumbnail_url) + '">' +
+            '<span class="playlist-item-text">' +
+              '<span class="playlist-item-title">' + escHtml(entry.title) + '</span>' +
+              '<span class="playlist-item-meta">' +
+                escHtml(formatDuration(entry.duration)) +
+                tags.map(t => '<span class="playlist-tag' + (t === 'From your link' ? ' is-link' : '') + '">' + escHtml(t) + '</span>').join('') +
+              '</span>' +
+            '</span>' +
+          '</label>';
+        const box = li.querySelector('input');
+        box.disabled = disabled;
+        box.checked = !disabled && isSelected && !entry.existing_status;
+        box.dataset.url = entry.url;
+        box.addEventListener('change', updatePlaylistCount);
+        playlistList.appendChild(li);
+      }
+
+      if (preview.entries.length === 0) {
+        playlistList.innerHTML = '<li class="playlist-empty">No videos found in this playlist.</li>';
+      }
+      updatePlaylistCount();
+      playlistModal.hidden = false;
+      playlistList.querySelector('.is-selected')?.scrollIntoView({ block: 'nearest' });
+    }
+
+    function closePlaylistModal() {
+      if (playlistBusy) return;
+      playlistModal.hidden = true;
+    }
+
+    function setAllPlaylist(checked) {
+      for (const box of playlistCheckboxes()) {
+        if (!box.disabled) box.checked = checked;
+      }
+      updatePlaylistCount();
+    }
+
+    document.getElementById('playlist-all-btn').addEventListener('click', () => setAllPlaylist(true));
+    document.getElementById('playlist-none-btn').addEventListener('click', () => setAllPlaylist(false));
+    document.getElementById('playlist-cancel-btn').addEventListener('click', closePlaylistModal);
+    playlistModal.addEventListener('click', e => {
+      if (e.target === playlistModal) closePlaylistModal();
+    });
+
+    playlistSubmit.addEventListener('click', async () => {
+      const boxes = playlistCheckboxes().filter(b => b.checked && !b.disabled);
+      if (boxes.length === 0) return;
+      playlistBusy = true;
+      playlistError.hidden = true;
+      let failed = 0;
+      let firstError = '';
+      for (const [i, box] of boxes.entries()) {
+        playlistSubmit.disabled = true;
+        playlistSubmit.textContent = 'Adding ' + (i + 1) + ' of ' + boxes.length + '…';
+        let msg;
+        try { msg = await postSubmission(box.dataset.url); } catch { msg = 'Network error'; }
+        if (msg === null) {
+          // Queued: lock it so a retry of the remaining items cannot resend it.
+          box.checked = false;
+          box.disabled = true;
+          box.closest('.playlist-item').classList.add('is-disabled');
+        } else {
+          failed += 1;
+          firstError = firstError || msg;
+        }
+      }
+      playlistBusy = false;
+      navigate(1, currentStatus, currentSearch);
+      if (failed === 0) {
+        playlistModal.hidden = true;
+        return;
+      }
+      playlistError.textContent = (boxes.length - failed) + ' added, ' + failed + ' failed: ' + firstError;
+      playlistError.hidden = false;
+      updatePlaylistCount();
     });
 
     // ── Detail modal ──────────────────────────────────────────────────────────
@@ -741,6 +950,7 @@
         document.getElementById('detail-modal').hidden = true;
         document.getElementById('confirm-modal').hidden = true;
         closeAddModal();
+        closePlaylistModal();
       }
     });
 

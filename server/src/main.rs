@@ -15,6 +15,8 @@ mod peertube;
 mod poller;
 mod progress;
 mod state;
+mod service_accounts;
+mod source_cleanup;
 mod transcoding_poller;
 mod url_validator;
 mod video_meta;
@@ -44,6 +46,14 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     let config = config::Config::from_env()?;
     let pool = Arc::new(db::init(&config.database_url).await?);
+    if config.service_accounts_file.exists() {
+        service_accounts::sync_manifest(&pool, &config.service_accounts_file).await?;
+    } else {
+        tracing::info!(
+            path = %config.service_accounts_file.display(),
+            "no service-account manifest configured"
+        );
+    }
     db::reset_interrupted_downloads(&pool).await?;
     let config = Arc::new(config);
     let progress_map = progress::new_progress_map();
@@ -135,6 +145,9 @@ async fn main() -> anyhow::Result<()> {
         config.metube_url.clone(),
         pool.clone(),
         progress_map.clone(),
+        config.metube_update_url.clone(),
+        config.metube_update_token.clone(),
+        config.metube_auto_update_on_failure,
     );
 
     // Socket.IO listener for real-time MeTube download progress
@@ -232,6 +245,24 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/validate", get(handlers::validate))
         .route("/api/check-url", get(handlers::check_url))
         .route("/api/check-submission", get(handlers::check_submission))
+        .route("/api/service/catalog", get(handlers::service_catalog))
+        .route("/api/service/videos/:uuid", get(handlers::service_video))
+        .route(
+            "/api/service/videos/:uuid/media",
+            get(handlers::service_media),
+        )
+        .route(
+            "/api/service/videos/:uuid/thumbnail",
+            get(handlers::service_thumbnail),
+        )
+        .route(
+            "/api/service/videos/:uuid/complete",
+            post(handlers::service_complete),
+        )
+        .route(
+            "/api/service/videos/:uuid/fail",
+            post(handlers::service_fail),
+        )
         .route("/api/internal/cleanup", post(handlers::cleanup))
         .route("/api/internal/handoff", post(handlers::handoff))
         .route("/api/submissions", get(handlers::list_submissions))
@@ -240,9 +271,12 @@ async fn main() -> anyhow::Result<()> {
             post(handlers::delete_submissions),
         )
         .route("/api/submissions/create", post(handlers::submit_web))
+        .route("/api/playlist/preview", post(handlers::playlist_preview))
         .nest_service("/static", ServeDir::new("static"))
         .merge(auth_router)
         .route("/dashboard", get(handlers::dashboard))
+        .route("/transfers", get(handlers::transfers_page))
+        .route("/api/transfers", get(handlers::transfers_api))
         .route("/cleanup", get(handlers::cleanup_page))
         .route("/api/cleanup/videos", get(handlers::list_orphan_videos))
         .route("/api/cleanup/delete", post(handlers::delete_orphan_videos))

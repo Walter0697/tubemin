@@ -22,12 +22,14 @@ services:
       start_period: 60s
 
   metube:
-    image: ghcr.io/alexta69/metube:latest
+    build: ./metube
     restart: unless-stopped
     volumes:
       - ./data/downloads:/downloads
     environment:
       DOWNLOAD_DIR: /downloads
+      METUBE_MAINTENANCE_TOKEN: ${METUBE_UPDATE_TOKEN:-test-metube-maintenance-token}
+      METUBE_MAINTENANCE_PORT: 8082
       YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true, "writesubtitles": true, "writeautomaticsub": true}'
 
   peertube:

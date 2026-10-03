@@ -99,6 +99,9 @@ mod tests {
             config: Arc::new(Config {
                 api_port: 3000,
                 metube_url: "http://metube".into(),
+                metube_update_url: None,
+                metube_update_token: None,
+                metube_auto_update_on_failure: false,
                 downloads_dir: PathBuf::from("/tmp/downloads"),
                 peertube_import_dir: PathBuf::from("/tmp/import"),
                 database_url: "sqlite::memory:".into(),
@@ -112,6 +115,7 @@ mod tests {
                 oidc_login_label: "Sign in".into(),
                 peertube_url: None,
                 peertube_host: None,
+                peertube_domain: None,
                 peertube_username: None,
                 peertube_password: None,
                 peertube_admin_email: None,
@@ -122,6 +126,7 @@ mod tests {
                 peertube_oidc_client_id: None,
                 peertube_oidc_client_secret: None,
                 peertube_cleanup_token: None,
+                service_accounts_file: PathBuf::from("/tmp/service-accounts.toml"),
             }),
             progress: progress::new_progress_map(),
         }

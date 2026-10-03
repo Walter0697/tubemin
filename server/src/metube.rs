@@ -128,6 +128,18 @@ pub async fn submit(metube_url: &str, url: &str) -> Result<(), MeTubeError> {
     Ok(())
 }
 
+pub async fn request_update(update_url: &str, token: &str) -> Result<(), MeTubeError> {
+    let resp = client()
+        .post(update_url)
+        .bearer_auth(token)
+        .send()
+        .await?;
+    if !resp.status().is_success() {
+        return Err(MeTubeError::BadStatus(resp.status().as_u16()));
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

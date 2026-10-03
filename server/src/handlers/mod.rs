@@ -3,11 +3,14 @@ pub mod check_url;
 pub mod cleanup;
 pub mod internal_cleanup;
 pub mod internal_handoff;
+pub mod playlist;
 pub mod dashboard;
 pub mod settings;
+pub mod service_api;
 pub mod shortcut;
 pub mod submissions;
 pub mod submit;
+pub mod transfers;
 pub mod validate;
 
 pub use check_submission::check_submission;
@@ -16,10 +19,16 @@ pub use cleanup::{cleanup_page, delete_orphan_videos, list_orphan_videos};
 pub use internal_cleanup::cleanup;
 pub use internal_handoff::handoff;
 pub use dashboard::dashboard;
+pub use playlist::playlist_preview;
 pub use settings::{
     download_shortcut, generate_key, generate_shortcut_setup, revoke_key, settings,
+};
+pub use service_api::{
+    service_catalog, service_complete, service_fail, service_media, service_thumbnail,
+    service_video,
 };
 pub use shortcut::setup;
 pub use submissions::{delete_submissions, list_submissions};
 pub use submit::{submit, submit_web};
+pub use transfers::{transfers_api, transfers_page};
 pub use validate::validate;

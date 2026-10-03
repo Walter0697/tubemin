@@ -1,9 +1,10 @@
 use crate::progress::ProgressMap;
+use chrono::Utc;
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::time::{interval, Duration};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 const MAX_DOWNLOAD_RETRIES: i64 = 3;
 
@@ -13,17 +14,31 @@ fn is_permanent_error(error: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
+fn should_update_before_retry(retry_claimed: bool, auto_update_on_failure: bool) -> bool {
+    retry_claimed && auto_update_on_failure
+}
+
 pub fn start(
     metube_url: String,
     pool: Arc<SqlitePool>,
     progress: ProgressMap,
+    update_url: Option<String>,
+    update_token: Option<String>,
+    auto_update_on_failure: bool,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut ticker = interval(Duration::from_secs(5));
+        let startup_at = Utc::now().to_rfc3339();
+        let mut startup_recovery_done = false;
         loop {
             ticker.tick().await;
             match crate::metube::get_queue_state(&metube_url).await {
                 Ok(state) => {
+                    if !startup_recovery_done {
+                        recover_pending_metube_submissions(&pool, &metube_url, &state, &startup_at)
+                            .await;
+                        startup_recovery_done = true;
+                    }
                     let live: HashSet<String> = state
                         .active
                         .iter()
@@ -86,33 +101,59 @@ pub fn start(
                             );
                             continue;
                         }
-                        match crate::db::claim_metube_retry(&pool, &item.url, MAX_DOWNLOAD_RETRIES)
-                            .await
+                        let retry_claimed = match crate::db::claim_metube_retry(
+                            &pool,
+                            &item.url,
+                            MAX_DOWNLOAD_RETRIES,
+                        )
+                        .await
                         {
-                            Ok(true) => {
-                                if let Err(e) = crate::metube::submit(&metube_url, &item.url).await
+                            Ok(claimed) => claimed,
+                            Err(e) => {
+                                error!(
+                                    error = %e,
+                                    url = %item.url,
+                                    "db error claiming MeTube retry"
+                                );
+                                false
+                            }
+                        };
+                        if !retry_claimed {
+                            continue;
+                        }
+
+                        let mut updated_before_retry = false;
+                        if should_update_before_retry(retry_claimed, auto_update_on_failure) {
+                            if let (Some(update_url), Some(update_token)) =
+                                (update_url.as_deref(), update_token.as_deref())
+                            {
+                                match crate::metube::request_update(update_url, update_token).await
                                 {
-                                    let _ =
-                                        crate::db::mark_pending_as_error_by_url(&pool, &item.url)
-                                            .await;
-                                    error!(
+                                    Ok(()) => {
+                                        updated_before_retry = wait_for_metube(&metube_url).await;
+                                        if !updated_before_retry {
+                                            warn!(url = %item.url, "MeTube did not become ready after yt-dlp update");
+                                        }
+                                    }
+                                    Err(e) => warn!(
                                         error = %e,
                                         url = %item.url,
-                                        "failed to submit MeTube retry"
-                                    );
-                                } else {
-                                    warn!(
-                                        url = %item.url,
-                                        "retrying failed MeTube download"
-                                    );
+                                        "MeTube update request failed; using normal retry"
+                                    ),
                                 }
                             }
-                            Ok(false) => {}
-                            Err(e) => error!(
+                        }
+                        if let Err(e) = crate::metube::submit(&metube_url, &item.url).await {
+                            let _ = crate::db::mark_pending_as_error_by_url(&pool, &item.url).await;
+                            error!(
                                 error = %e,
                                 url = %item.url,
-                                "db error claiming MeTube retry"
-                            ),
+                                "failed to submit MeTube retry"
+                            );
+                        } else if updated_before_retry {
+                            warn!(url = %item.url, "retrying failed MeTube download after yt-dlp update");
+                        } else {
+                            warn!(url = %item.url, "retrying failed MeTube download");
                         }
                     }
 
@@ -152,15 +193,71 @@ pub fn start(
     })
 }
 
+async fn recover_pending_metube_submissions(
+    pool: &SqlitePool,
+    metube_url: &str,
+    state: &crate::metube::QueueState,
+    startup_at: &str,
+) {
+    let known_urls: HashSet<&str> = state
+        .active
+        .iter()
+        .chain(state.pending.iter())
+        .map(|item| item.url.as_str())
+        .chain(state.errored.iter().map(|item| item.url.as_str()))
+        .chain(state.finished.iter().map(|item| item.url.as_str()))
+        .collect();
+
+    let urls = match crate::db::pending_metube_urls_before(pool, startup_at).await {
+        Ok(urls) => urls,
+        Err(error) => {
+            error!(error = %error, "startup MeTube recovery database lookup failed");
+            return;
+        }
+    };
+
+    for url in urls {
+        if known_urls.contains(url.as_str()) {
+            continue;
+        }
+        match crate::metube::submit(metube_url, &url).await {
+            Ok(()) => info!(url = %url, "startup recovery resubmitted pending MeTube download"),
+            Err(error) => {
+                warn!(error = %error, url = %url, "startup recovery could not resubmit MeTube download")
+            }
+        }
+    }
+}
+
+async fn wait_for_metube(metube_url: &str) -> bool {
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    for _ in 0..30 {
+        if crate::metube::get_queue_state(metube_url).await.is_ok() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::is_permanent_error;
 
     #[test]
+    fn update_is_attempted_only_for_claimed_retry() {
+        assert!(super::should_update_before_retry(true, true));
+        assert!(!super::should_update_before_retry(false, true));
+        assert!(!super::should_update_before_retry(true, false));
+    }
+
+    #[test]
     fn conversion_failures_are_not_retryable() {
         assert!(is_permanent_error(Some("Conversion failed!")));
         assert!(is_permanent_error(Some("ffmpeg: CONVERSION FAILED")));
-        assert!(!is_permanent_error(Some("HTTP Error 429: Too Many Requests")));
+        assert!(!is_permanent_error(Some(
+            "HTTP Error 429: Too Many Requests"
+        )));
         assert!(!is_permanent_error(None));
     }
 }

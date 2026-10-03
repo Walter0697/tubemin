@@ -1455,6 +1455,67 @@ pub fn is_supported_url(url: &str) -> bool {
     false
 }
 
+fn youtube_url(url: &str) -> Option<reqwest::Url> {
+    let parsed = reqwest::Url::parse(url.trim()).ok()?;
+    let host = parsed.host_str()?.to_ascii_lowercase();
+    let host = host.strip_prefix("www.").unwrap_or(&host);
+    matches!(
+        host,
+        "youtube.com" | "m.youtube.com" | "music.youtube.com" | "youtube-nocookie.com" | "youtu.be"
+    )
+    .then_some(parsed)
+}
+
+fn is_youtube_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 64
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+/// Video ID from any YouTube single-video URL form (watch, youtu.be, shorts,
+/// embed, live), or None for playlist-only and non-YouTube URLs.
+pub fn youtube_video_id(url: &str) -> Option<String> {
+    let parsed = youtube_url(url)?;
+    let mut segments = parsed.path_segments()?.filter(|s| !s.is_empty());
+    let first = segments.next();
+    let id = if parsed.host_str()?.eq_ignore_ascii_case("youtu.be") {
+        first.map(str::to_string)
+    } else {
+        match first {
+            Some("watch") => parsed
+                .query_pairs()
+                .find(|(k, _)| k == "v")
+                .map(|(_, v)| v.into_owned()),
+            Some("shorts") | Some("embed") | Some("live") | Some("v") => {
+                segments.next().map(str::to_string)
+            }
+            _ => None,
+        }
+    };
+    id.filter(|id| is_youtube_id(id))
+}
+
+/// Playlist ID from a YouTube URL's `list` parameter.
+pub fn youtube_playlist_id(url: &str) -> Option<String> {
+    youtube_url(url)?
+        .query_pairs()
+        .find(|(k, _)| k == "list")
+        .map(|(_, v)| v.into_owned())
+        .filter(|id| is_youtube_id(id))
+}
+
+pub fn canonical_youtube_url(video_id: &str) -> String {
+    format!("https://www.youtube.com/watch?v={video_id}")
+}
+
+/// Stable identity for duplicate detection across URL variants of the same
+/// video. Only YouTube is normalised; other sites keep exact-URL matching.
+pub fn video_key(url: &str) -> Option<String> {
+    youtube_video_id(url).map(|id| format!("youtube:{id}"))
+}
+
 fn extract_host(url: &str) -> Option<String> {
     // Strip scheme
     let rest = url.find("://").map(|i| &url[i + 3..])?;
@@ -1496,5 +1557,54 @@ mod tests {
         assert!(!is_supported_url("https://randomsite.xyz/page"));
         assert!(!is_supported_url("not-a-url"));
         assert!(!is_supported_url(""));
+    }
+
+    #[test]
+    fn extracts_youtube_video_ids_from_url_variants() {
+        for url in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PL123&index=3",
+            "https://youtube.com/watch?t=30&v=dQw4w9WgXcQ",
+            "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://music.youtube.com/watch?v=dQw4w9WgXcQ&list=RDAMVM1",
+            "https://youtu.be/dQw4w9WgXcQ?list=PL123",
+            "https://www.youtube.com/shorts/dQw4w9WgXcQ",
+            "https://www.youtube.com/embed/dQw4w9WgXcQ",
+            "https://www.youtube.com/live/dQw4w9WgXcQ?si=abc",
+        ] {
+            assert_eq!(youtube_video_id(url).as_deref(), Some("dQw4w9WgXcQ"), "{url}");
+            assert_eq!(video_key(url).as_deref(), Some("youtube:dQw4w9WgXcQ"), "{url}");
+        }
+    }
+
+    #[test]
+    fn playlist_only_and_foreign_urls_have_no_video_id() {
+        assert_eq!(youtube_video_id("https://www.youtube.com/playlist?list=PL123"), None);
+        assert_eq!(youtube_video_id("https://vimeo.com/123?v=abc"), None);
+        assert_eq!(youtube_video_id("https://www.youtube.com/watch?v=bad%20id"), None);
+        assert_eq!(video_key("https://vimeo.com/123"), None);
+    }
+
+    #[test]
+    fn extracts_youtube_playlist_ids() {
+        assert_eq!(
+            youtube_playlist_id("https://www.youtube.com/playlist?list=PL123").as_deref(),
+            Some("PL123")
+        );
+        assert_eq!(
+            youtube_playlist_id("https://www.youtube.com/watch?v=abc&list=RDabc&start_radio=1")
+                .as_deref(),
+            Some("RDabc")
+        );
+        assert_eq!(youtube_playlist_id("https://www.youtube.com/watch?v=abc"), None);
+        assert_eq!(youtube_playlist_id("https://example.com/?list=PL123"), None);
+    }
+
+    #[test]
+    fn canonical_youtube_url_is_single_video_watch_url() {
+        assert_eq!(
+            canonical_youtube_url("dQw4w9WgXcQ"),
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        );
     }
 }

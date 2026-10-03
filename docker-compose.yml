@@ -23,6 +23,7 @@ services:
     volumes:
       - ./data/downloads:/downloads
       - ./data/peertube-import:/peertube-import
+      - ./service-accounts:/etc/tubemin/service-accounts:ro
       - tubemin_data:/data
     depends_on:
       metube:
@@ -40,16 +41,18 @@ services:
       start_period: 60s
 
   metube:
-    image: ghcr.io/alexta69/metube:latest
+    build: ./metube
     restart: unless-stopped
     volumes:
       - ./data/downloads:/downloads
     environment:
       DOWNLOAD_DIR: /downloads
-      # Keep downloads simple: subtitles/auto-captions can trigger 429s on some YouTube videos.
-      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true, "format": "bv*[vcodec^=avc1][height<=1080]+ba[acodec^=mp4a]/b[ext=mp4][height<=1080]"}'
+      ALLOW_YTDL_OPTIONS_OVERRIDES: "true"
+      YTDL_OPTIONS: '{"writeinfojson": true, "writethumbnail": true, "writesubtitles": true, "writeautomaticsub": true}'
       # Keep yt-dlp current so MeTube receives urgent YouTube extractor fixes.
       YTDL_NIGHTLY_UPDATE_TIME: "04:00"
+      METUBE_MAINTENANCE_TOKEN: ${METUBE_UPDATE_TOKEN}
+      METUBE_MAINTENANCE_PORT: 8082
 
   peertube:
     image: chocobozzz/peertube:production-bookworm
@@ -104,7 +107,7 @@ services:
     env_file: .env
     environment:
       PEERTUBE_URL: http://peertube:9000
-      PEERTUBE_HOST: localhost:7006
+      PEERTUBE_HOST: ${PEERTUBE_HOST:-localhost:9000}
       TUBEMIN_URL: http://tubemin:3000
       JELLYFIN_URL: http://jellyfin:8096
       JELLYFIN_PUBLIC_URL: http://localhost:18096

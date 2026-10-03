@@ -11,7 +11,7 @@ services:
       - ./local-data:/data
 
   metube:
-    image: alexta69/metube:latest
+    build: ./metube
     ports:
       - "8081:8081"
 

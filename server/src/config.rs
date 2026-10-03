@@ -10,6 +10,9 @@ pub enum AuthMode {
 pub struct Config {
     pub api_port: u16,
     pub metube_url: String,
+    pub metube_update_url: Option<String>,
+    pub metube_update_token: Option<String>,
+    pub metube_auto_update_on_failure: bool,
     pub downloads_dir: PathBuf,
     pub peertube_import_dir: PathBuf,
     pub database_url: String,
@@ -23,6 +26,7 @@ pub struct Config {
     pub oidc_login_label: String,
     pub peertube_url: Option<String>,
     pub peertube_host: Option<String>,
+    pub peertube_domain: Option<String>,
     pub peertube_username: Option<String>,
     pub peertube_password: Option<String>,
     pub peertube_admin_email: Option<String>,
@@ -33,6 +37,7 @@ pub struct Config {
     pub peertube_oidc_client_id: Option<String>,
     pub peertube_oidc_client_secret: Option<String>,
     pub peertube_cleanup_token: Option<String>,
+    pub service_accounts_file: PathBuf,
 }
 
 impl Config {
@@ -91,6 +96,15 @@ impl Config {
                 .unwrap_or_else(|_| "3000".into())
                 .parse()?,
             metube_url: std::env::var("METUBE_URL").unwrap_or_else(|_| "http://metube:8081".into()),
+            metube_update_url: std::env::var("METUBE_UPDATE_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            metube_update_token: std::env::var("METUBE_UPDATE_TOKEN")
+                .ok()
+                .filter(|v| !v.trim().is_empty()),
+            metube_auto_update_on_failure: std::env::var("METUBE_AUTO_UPDATE_ON_FAILURE")
+                .unwrap_or_else(|_| "false".into())
+                .parse()?,
             downloads_dir: PathBuf::from(
                 std::env::var("DOWNLOADS_DIR").unwrap_or_else(|_| "/downloads".into()),
             ),
@@ -109,6 +123,7 @@ impl Config {
                 .unwrap_or_else(|_| "Sign in with Authentik".into()),
             peertube_url: std::env::var("PEERTUBE_URL").ok(),
             peertube_host: std::env::var("PEERTUBE_HOST").ok(),
+            peertube_domain: std::env::var("PEERTUBE_DOMAIN").ok(),
             peertube_username: std::env::var("PEERTUBE_USERNAME").ok(),
             peertube_password: std::env::var("PEERTUBE_PASSWORD").ok(),
             peertube_admin_email: std::env::var("PEERTUBE_ADMIN_EMAIL").ok(),
@@ -135,6 +150,10 @@ impl Config {
             peertube_cleanup_token: std::env::var("TUBEMIN_PEERTUBE_CLEANUP_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
+            service_accounts_file: PathBuf::from(
+                std::env::var("TUBEMIN_SERVICE_ACCOUNTS_FILE")
+                    .unwrap_or_else(|_| "/data/service-accounts.toml".into()),
+            ),
         })
     }
 }
