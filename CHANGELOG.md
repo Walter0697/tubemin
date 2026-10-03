@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.0](https://github.com/Walter0697/tubemin/compare/v0.11.3...v0.12.0) (2026-10-03)
+
+
+### Features
+
+* add Tubemin service consumers and transfer cleanup ([#34](https://github.com/Walter0697/tubemin/issues/34)) ([dd355c9](https://github.com/Walter0697/tubemin/commit/dd355c9296b01f4d175b437783492d2aa3af188d))
+
 ## [0.11.3](https://github.com/Walter0697/tubemin/compare/v0.11.2...v0.11.3) (2026-09-22)
 
 
