@@ -1,6 +1,6 @@
 [package]
 name = "tubemin"
-version = "0.11.2"
+version = "0.12.0"
 edition = "2021"
 
 [dependencies]
@@ -10,6 +10,7 @@ sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "migrate", "chr
 dotenvy = "0.15"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+toml = "0.8"
 reqwest = { version = "0.12", features = ["json", "multipart", "stream"] }
 tokio-util = { version = "0.7", features = ["io"] }
 notify = "6"

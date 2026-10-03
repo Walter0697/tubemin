@@ -225,7 +225,8 @@ pub fn start(
                 continue;
             }
             let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            match crate::db::file_ready_for_import(&pool, filename).await {
+            let has_completion_sidecar = path.with_extension("info.json").is_file();
+            match crate::db::file_ready_for_import(&pool, filename, has_completion_sidecar).await {
                 Ok(true) => {}
                 Ok(false) => {
                     info!(path = %path.display(), "waiting for MeTube successful completion before importing");
@@ -508,7 +509,8 @@ pub(crate) async fn handle_new_file(
         return None;
     }
     let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    if !crate::db::file_ready_for_import(pool, filename)
+    let has_completion_sidecar = path.with_extension("info.json").is_file();
+    if !crate::db::file_ready_for_import(pool, filename, has_completion_sidecar)
         .await
         .unwrap_or(false)
     {

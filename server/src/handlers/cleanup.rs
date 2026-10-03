@@ -69,6 +69,7 @@ pub async fn cleanup_page(
 pub struct OrphanVideoRow {
     pub uuid: String,
     pub title: String,
+    pub category: String,
     pub thumbnail_path: Option<String>,
     pub preview_path: Option<String>,
     pub published_at: Option<String>,
@@ -107,6 +108,17 @@ pub async fn list_orphan_videos(
                 .into_response();
         }
     };
+    let archived_uuids = match db::archived_peertube_uuids(&state.pool).await {
+        Ok(uuids) => uuids,
+        Err(e) => {
+            tracing::error!("DB error loading archived PeerTube UUIDs: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "db error"})),
+            )
+                .into_response();
+        }
+    };
 
     let submitter_tag = user.submitter_tag();
     let Some(tag_filter) = peertube::submitter_peer_tube_tag(&submitter_tag) else {
@@ -138,8 +150,13 @@ pub async fn list_orphan_videos(
 
     let orphans: Vec<OrphanVideoRow> = videos
         .into_iter()
-        .filter(|video| !known_uuids.contains(&video.uuid))
+        .filter(|video| !known_uuids.contains(&video.uuid) || archived_uuids.contains(&video.uuid))
         .map(|video| OrphanVideoRow {
+            category: if archived_uuids.contains(&video.uuid) {
+                "transferred".into()
+            } else {
+                "orphan".into()
+            },
             uuid: video.uuid,
             title: video.title,
             thumbnail_path: video.thumbnail_path,
@@ -193,10 +210,37 @@ pub async fn delete_orphan_videos(
     };
 
     let submitter_tag = user.submitter_tag();
+    let known_uuids = match db::all_peertube_uuids(&state.pool).await {
+        Ok(uuids) => uuids,
+        Err(e) => {
+            tracing::error!("DB error loading PeerTube UUIDs: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "db error"})),
+            )
+                .into_response();
+        }
+    };
+    let archived_uuids = match db::archived_peertube_uuids(&state.pool).await {
+        Ok(uuids) => uuids,
+        Err(e) => {
+            tracing::error!("DB error loading archived PeerTube UUIDs: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "db error"})),
+            )
+                .into_response();
+        }
+    };
     let mut deleted = 0usize;
     let mut failed = 0usize;
 
     for uuid in body.uuids {
+        if known_uuids.contains(&uuid) && !archived_uuids.contains(&uuid) {
+            tracing::warn!("Refusing cleanup delete for active Tubemin video {}", uuid);
+            failed += 1;
+            continue;
+        }
         let tags = match peertube::get_video_tags(
             pt_url,
             state.config.peertube_host.as_deref(),

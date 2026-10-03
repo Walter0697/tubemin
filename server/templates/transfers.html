@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tubemin — Transfer history</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_version }}">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+</head>
+<body>
+  {% include "nav" %}
+  <main class="page transfer-history-page">
+    <h1 class="page-title">Transfer history</h1>
+    <p class="page-intro">Completed and failed transfers reported by downstream services.</p>
+    <div id="transfer-history" class="transfer-history-table-wrap">
+      <p class="empty-msg">Loading transfer history…</p>
+    </div>
+  </main>
+  <script src="/static/transfers.js?v={{ asset_version }}"></script>
+</body>
+</html>

@@ -6,6 +6,7 @@
   --border:       #2e2e2e;
   --accent:       #e85d4a;
   --accent-hover: #d44a37;
+  --accent-soft:  rgba(232, 93, 74, 0.14);  /* selected row tint */
   --text:         #e0e0e0;
   --text-muted:   #888888;
   --text-dim:     #555555;
@@ -349,6 +350,7 @@ input::placeholder { color: var(--text-dim); }
 .status-downloading { background: #60a5fa; box-shadow: 0 0 6px #60a5fa66; animation: pulse-blue 1.4s ease-in-out infinite; }
 .status-transcoding  { background: var(--status-warn); box-shadow: 0 0 6px #e8884a66; animation: pulse-amber 1.4s ease-in-out infinite; }
 .status-complete     { background: #a3e635; box-shadow: 0 0 8px #a3e63566; }
+.status-deleted      { background: var(--status-ok); box-shadow: 0 0 6px #4ade8066; }
 
 @keyframes pulse-blue {
   0%, 100% { opacity: 1; }
@@ -808,6 +810,131 @@ a.card.card-selected {
   gap: 10px;
 }
 
+/* ── Playlist picker ────────────────────────────────────────────────── */
+.playlist-modal-box {
+  max-width: 560px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+.playlist-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.playlist-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--status-warn);
+}
+.playlist-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.playlist-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.playlist-toolbar-actions {
+  display: flex;
+  gap: 6px;
+}
+.playlist-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+.playlist-item label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 8px 8px 6px;
+  border-bottom: 1px solid var(--border-subtle);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s;
+}
+.playlist-item input {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+/* Unselected rows recede; selected rows get an accent bar and tint. */
+.playlist-item:not(:has(input:checked)) .playlist-thumb { opacity: 0.5; }
+.playlist-item:not(:has(input:checked)) .playlist-item-title { color: var(--text-muted); }
+.playlist-item:not(.is-disabled):not(:has(input:checked)) label:hover { background: var(--surface-2); }
+.playlist-item:has(input:checked) label {
+  background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.playlist-item:has(input:checked) .playlist-item-title {
+  color: var(--text);
+  font-weight: 600;
+}
+.playlist-item.is-disabled label {
+  cursor: default;
+  opacity: 0.45;
+}
+.playlist-thumb {
+  width: 80px;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: 4px;
+  background: var(--surface-2);
+  flex-shrink: 0;
+}
+.playlist-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.playlist-item-title {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.playlist-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.playlist-tag {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+}
+.playlist-tag.is-link {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.playlist-empty {
+  padding: 16px 4px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+@media (max-width: 600px) {
+  .playlist-modal-box { padding: 18px 16px; }
+  .playlist-thumb { width: 64px; }
+}
+
 /* ── Detail modal ───────────────────────────────────────────────────── */
 .detail-modal-box {
   max-width: 520px;
@@ -1073,6 +1200,57 @@ a.card.card-selected {
   .bulk-toolbar { flex-wrap: wrap; }
   .filter-tab { min-height: 40px; }
   .pagination button { min-height: 40px; }
+}
+
+/* Phone: modals scroll instead of overflowing the viewport */
+.transfer-history-table-wrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.transfer-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 720px;
+}
+.transfer-history-table th,
+.transfer-history-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  vertical-align: top;
+}
+.transfer-history-table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.transfer-history-table td {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+.transfer-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.transfer-state .status-dot {
+  margin-right: 0;
+}
+.transfer-history-table tbody tr {
+  transition: background 0.15s ease;
+}
+.transfer-history-table tbody tr:hover {
+  background: var(--surface-2);
+}
+.transfer-history-table tbody td:first-child {
+  color: var(--text);
+}
+.transfer-history-table tr:last-child td {
+  border-bottom: 0;
 }
 
 /* Phone: modals scroll instead of overflowing the viewport */

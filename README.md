@@ -17,17 +17,29 @@ Chrome extension  →  Tubemin API  →  MeTube  →  /downloads  →  PeerTube
 | **PeerTube** | Self-hosted video platform, receives imported videos |
 | **Chrome extension** | One-click submit from any browser tab |
 
-## Quick start (local, no HTTPS)
+## Local development
 
-Good for testing. Skips Caddy; Tubemin listens directly on port 3000.
+This repository contains the TubeMin application and does not contain the
+deployment Compose files. Keep the machine-specific Compose stack, `.env`,
+bind mounts, and secrets in the deployment directory (for example,
+`/home/services/tubemin`). Build or run the application from there using the
+deployment instructions for that machine.
 
-```bash
-cp example.env .env
-# Set AUTH_MODE=password and ADMIN_PASSWORD in .env
-docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
+### Machine-to-machine service accounts
+
+Tubemin can expose PeerTube-owned media to trusted consumers such as ConvertTube without sharing a user API key. Define service accounts in the read-only `service-accounts/service-accounts.toml` startup manifest and provide each token through an environment variable or Docker secret:
+
+```toml
+[[service_accounts]]
+name = "converttube"
+token_env = "TUBEMIN_CONVERTTUBE_TOKEN"
+scopes = ["catalog:read", "media:read", "transfer:complete", "transfer:fail"]
+enabled = true
 ```
 
-Then open `http://localhost:3000`.
+The service API provides a catalog, video metadata, original media, thumbnails, completion/failure callbacks, and transfer history. A successful completion records the destination, removes Tubemin's local source artifacts, deletes the bot-owned PeerTube video, and keeps an audit record. Failed jobs leave the source untouched. The transfer history is available in the dashboard at `/transfers`.
+
+The service-account token is only used for machine-to-machine access; existing user-facing API keys remain available for the extension and other user clients.
 
 ## Production setup
 
@@ -82,6 +94,7 @@ PEERTUBE_PASSWORD=strong-bot-password
 ### 3. Start
 
 ```bash
+cd /home/services/tubemin
 docker compose up -d
 ```
 
@@ -190,6 +203,7 @@ Then fill in the four `OIDC_*` vars in `.env`.
 ## Rebuilding after changes
 
 ```bash
+cd /home/services/tubemin
 docker compose up --build --pull never -d tubemin
 ```
 
@@ -206,7 +220,11 @@ docker compose up --build --pull never -d tubemin
 | `OIDC_LOGIN_LABEL` | no | `Sign in with Authentik` | Login button label on the sign-in page |
 | `API_PORT` | no | `3000` | Internal port Tubemin listens on |
 | `DATABASE_URL` | yes | — | `sqlite:///data/tubemin.db` |
+| `TUBEMIN_SERVICE_ACCOUNTS_FILE` | no | `/data/service-accounts.toml` | Startup TOML manifest defining machine-to-machine accounts |
 | `METUBE_URL` | no | `http://metube:8081` | MeTube internal address |
+| `METUBE_UPDATE_URL` | no | — | Optional internal MeTube maintenance endpoint for yt-dlp update/restart |
+| `METUBE_UPDATE_TOKEN` | no | — | Bearer token for the optional MeTube maintenance endpoint |
+| `METUBE_AUTO_UPDATE_ON_FAILURE` | no | `false` | Request a MeTube yt-dlp update before retrying eligible download failures |
 | `DOWNLOADS_DIR` | no | `/downloads` | Where MeTube saves files |
 | `PEERTUBE_IMPORT_DIR` | no | `/peertube-import` | PeerTube watched folder |
 | `PEERTUBE_URL` | no | — | PeerTube internal address (enables upload) |

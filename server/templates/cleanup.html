@@ -20,8 +20,8 @@
     <p class="cleanup-intro">
       Videos here live on PeerTube under your submitter tag
       <code>submitter:{{ submitter_tag }}</code>
-      but are not tracked in the Tubemin dashboard — for example after a database reset.
-      You can delete them here without a dashboard entry.
+      but are either not tracked in Tubemin or were already transferred and still remain on PeerTube.
+      Deleting here removes only the PeerTube video; Tubemin history is preserved.
     </p>
 
     <div class="bulk-toolbar" id="bulk-toolbar" hidden>
@@ -84,7 +84,11 @@
           '<span class="ph-icon">▶</span>' +
           '<span class="ph-site">PeerTube</span>' +
         '</div>' +
-        '<div class="card-source-badge">Orphan</div>';
+        '<div class="card-source-badge">Cleanup</div>';
+    }
+
+    function categoryLabel(video) {
+      return video.category === 'transferred' ? 'Transferred — still on PeerTube' : 'Orphan';
     }
 
     function hydrateThumb(card, video) {
@@ -92,7 +96,7 @@
       const path = thumbPath(video);
       const badge = document.createElement('div');
       badge.className = 'card-source-badge';
-      badge.textContent = 'Orphan';
+      badge.textContent = categoryLabel(video);
 
       if (path && PEERTUBE_BASE) {
         const img = document.createElement('img');
@@ -124,7 +128,7 @@
           '<div class="card-site">PeerTube</div>' +
           '<div class="card-title">' + escHtml(video.title) + '</div>' +
           '<div class="card-footer">' +
-            '<span class="card-status">not in dashboard</span>' +
+            '<span class="card-status">' + escHtml(categoryLabel(video)) + '</span>' +
             '<span class="card-time">' + relTime(video.publishedAt) + '</span>' +
           '</div>' +
         '</div>' +

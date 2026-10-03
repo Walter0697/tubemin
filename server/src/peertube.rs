@@ -1,7 +1,9 @@
 use anyhow::{anyhow, Result};
-use reqwest::Client;
+use reqwest::{Client, Response, Url};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
+use std::time::{Duration, Instant};
+use tokio::sync::Mutex;
 use tokio_util::io::ReaderStream;
 
 /// PeerTube tag written at upload time for the submitting user, e.g. `submitter:walter`.
@@ -133,6 +135,38 @@ mod tests {
             "walter"
         ));
         assert!(!video_owned_by_submitter(&vec![tag], "other-user"));
+    }
+
+    #[test]
+    fn best_download_url_prefers_highest_resolution_original_file() {
+        let detail: PeerTubeVideoDetail = serde_json::from_value(serde_json::json!({
+            "uuid": "video-1",
+            "name": "Example",
+            "description": "Description",
+            "files": [
+                {"fileUrl": "https://peer/video-360.mp4", "fileDownloadUrl": "https://peer/download-360.mp4", "resolution": {"id": 360}},
+                {"fileUrl": "https://peer/video-1080.mp4", "fileDownloadUrl": "https://peer/download-1080.mp4", "resolution": {"id": 1080}}
+            ],
+            "streamingPlaylists": []
+        })).unwrap();
+
+        assert_eq!(detail.best_download_url().as_deref(), Some("https://peer/download-1080.mp4"));
+    }
+
+    #[test]
+    fn cached_access_token_is_only_used_before_expiry() {
+        let now = std::time::Instant::now();
+        let fresh = CachedAccessToken {
+            token: "fresh".into(),
+            expires_at: now + std::time::Duration::from_secs(60),
+        };
+        let expired = CachedAccessToken {
+            token: "expired".into(),
+            expires_at: now - std::time::Duration::from_secs(1),
+        };
+
+        assert!(access_token_is_fresh(&fresh, now));
+        assert!(!access_token_is_fresh(&expired, now));
     }
 }
 
@@ -471,6 +505,67 @@ struct VideoDetails {
     tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeerTubeFile {
+    #[serde(rename = "fileUrl")]
+    pub file_url: String,
+    #[serde(rename = "fileDownloadUrl")]
+    pub file_download_url: Option<String>,
+    pub size: Option<u64>,
+    pub resolution: Option<PeerTubeResolution>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeerTubeResolution {
+    pub id: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeerTubeStreamingPlaylist {
+    #[serde(default)]
+    pub files: Vec<PeerTubeFile>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PeerTubeVideoDetail {
+    pub uuid: String,
+    pub name: String,
+    pub description: Option<String>,
+    #[serde(rename = "thumbnailPath")]
+    pub thumbnail_path: Option<String>,
+    pub duration: Option<u64>,
+    #[serde(rename = "publishedAt")]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub files: Vec<PeerTubeFile>,
+    #[serde(rename = "streamingPlaylists", default)]
+    pub streaming_playlists: Vec<PeerTubeStreamingPlaylist>,
+}
+
+impl PeerTubeVideoDetail {
+    pub fn best_download_url(&self) -> Option<String> {
+        self.files
+            .iter()
+            .chain(
+                self.streaming_playlists
+                    .iter()
+                    .flat_map(|playlist| playlist.files.iter()),
+            )
+            .max_by_key(|file| {
+                file.resolution
+                    .as_ref()
+                    .and_then(|resolution| resolution.id)
+                    .unwrap_or_default()
+            })
+            .map(|file| {
+                file.file_download_url
+                    .as_deref()
+                    .unwrap_or(&file.file_url)
+                    .to_string()
+            })
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListedVideo {
@@ -501,9 +596,27 @@ struct VideoListEntry {
 }
 
 static HTTP_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+static ACCESS_TOKEN_CACHE: std::sync::OnceLock<Mutex<Option<CachedAccessToken>>> =
+    std::sync::OnceLock::new();
+
+const ACCESS_TOKEN_TTL: Duration = Duration::from_secs(300);
+
+#[derive(Clone)]
+struct CachedAccessToken {
+    token: String,
+    expires_at: Instant,
+}
 
 fn client() -> &'static Client {
     HTTP_CLIENT.get_or_init(Client::new)
+}
+
+fn access_token_cache() -> &'static Mutex<Option<CachedAccessToken>> {
+    ACCESS_TOKEN_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn access_token_is_fresh(cached: &CachedAccessToken, now: Instant) -> bool {
+    cached.expires_at > now
 }
 
 async fn fetch_access_token(
@@ -512,6 +625,11 @@ async fn fetch_access_token(
     username: &str,
     password: &str,
 ) -> Result<String> {
+    let mut cached = access_token_cache().lock().await;
+    if let Some(token) = cached.as_ref().filter(|token| access_token_is_fresh(token, Instant::now())) {
+        return Ok(token.token.clone());
+    }
+
     let host = host_override
         .map(|s| s.to_string())
         .unwrap_or_else(|| derive_host(url));
@@ -543,7 +661,122 @@ async fn fetch_access_token(
         .await?;
     let token: TokenResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
+    *cached = Some(CachedAccessToken {
+        token: token.access_token.clone(),
+        expires_at: Instant::now() + ACCESS_TOKEN_TTL,
+    });
     Ok(token.access_token)
+}
+
+pub async fn get_video(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    video_uuid: &str,
+) -> Result<PeerTubeVideoDetail> {
+    let host = host_override
+        .map(str::to_string)
+        .unwrap_or_else(|| derive_host(url));
+    let token = fetch_access_token(url, host_override, username, password).await?;
+    let response = client()
+        .get(format!("{}/api/v1/videos/{video_uuid}", url))
+        .header("Host", &host)
+        .bearer_auth(token)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow!("PeerTube video lookup failed ({}): {}", status, body));
+    }
+    response
+        .json::<PeerTubeVideoDetail>()
+        .await
+        .map_err(|error| anyhow!("PeerTube video response was invalid: {error}"))
+}
+
+fn reachable_media_url(api_url: &str, media_url: &str) -> Result<Url> {
+    let mut media_url = Url::parse(media_url).map_err(|error| anyhow!("invalid media URL: {error}"))?;
+    let api_url = Url::parse(api_url).map_err(|error| anyhow!("invalid PeerTube URL: {error}"))?;
+    media_url
+        .set_scheme(api_url.scheme())
+        .map_err(|_| anyhow!("PeerTube media URL scheme could not be replaced"))?;
+    media_url
+        .set_host(api_url.host_str())
+        .map_err(|_| anyhow!("PeerTube media URL host could not be replaced"))?;
+    media_url
+        .set_port(api_url.port())
+        .map_err(|_| anyhow!("PeerTube media URL port could not be replaced"))?;
+    Ok(media_url)
+}
+
+pub async fn stream_original(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    video_uuid: &str,
+) -> Result<Response> {
+    let host = host_override
+        .map(str::to_string)
+        .unwrap_or_else(|| derive_host(url));
+    let token = fetch_access_token(url, host_override, username, password).await?;
+    let detail = get_video(url, host_override, username, password, video_uuid).await?;
+    let source = detail
+        .best_download_url()
+        .ok_or_else(|| anyhow!("PeerTube video has no downloadable source"))?;
+    let source = reachable_media_url(url, &source)?;
+    let response = client()
+        .get(source)
+        .header("Host", &host)
+        .bearer_auth(token)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(anyhow!("PeerTube media request failed ({}): {}", status, body));
+    }
+    Ok(response)
+}
+
+pub async fn fetch_thumbnail(
+    url: &str,
+    host_override: Option<&str>,
+    username: &str,
+    password: &str,
+    video_uuid: &str,
+) -> Result<(String, Vec<u8>)> {
+    let host = host_override
+        .map(str::to_string)
+        .unwrap_or_else(|| derive_host(url));
+    let token = fetch_access_token(url, host_override, username, password).await?;
+    let detail = get_video(url, host_override, username, password, video_uuid).await?;
+    let path = detail
+        .thumbnail_path
+        .ok_or_else(|| anyhow!("PeerTube video has no thumbnail"))?;
+    let thumbnail_url = if path.starts_with("http://") || path.starts_with("https://") {
+        reachable_media_url(url, &path)?
+    } else {
+        Url::parse(url)?.join(path.trim_start_matches('/'))?
+    };
+    let response = client()
+        .get(thumbnail_url)
+        .header("Host", &host)
+        .bearer_auth(token)
+        .send()
+        .await?;
+    if !response.status().is_success() {
+        return Err(anyhow!("PeerTube thumbnail request failed ({})", response.status()));
+    }
+    let content_type = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("image/jpeg")
+        .to_string();
+    Ok((content_type, response.bytes().await?.to_vec()))
 }
 
 /// List videos on the bot account, optionally filtered by a PeerTube tag (e.g. `submitter:walter`).
