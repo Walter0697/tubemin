@@ -17,17 +17,13 @@ Chrome extension  →  Tubemin API  →  MeTube  →  /downloads  →  PeerTube
 | **PeerTube** | Self-hosted video platform, receives imported videos |
 | **Chrome extension** | One-click submit from any browser tab |
 
-## Quick start (local, no HTTPS)
+## Local development
 
-Good for testing. Skips Caddy; Tubemin listens directly on port 3000.
-
-```bash
-cp example.env .env
-# Set AUTH_MODE=password and ADMIN_PASSWORD in .env
-docker compose -f docker-compose.yml -f docker-compose.local.yml up --build
-```
-
-Then open `http://localhost:3000`.
+This repository contains the TubeMin application and does not contain the
+deployment Compose files. Keep the machine-specific Compose stack, `.env`,
+bind mounts, and secrets in the deployment directory (for example,
+`/home/services/tubemin`). Build or run the application from there using the
+deployment instructions for that machine.
 
 ### Machine-to-machine service accounts
 
@@ -98,6 +94,7 @@ PEERTUBE_PASSWORD=strong-bot-password
 ### 3. Start
 
 ```bash
+cd /home/services/tubemin
 docker compose up -d
 ```
 
@@ -206,6 +203,7 @@ Then fill in the four `OIDC_*` vars in `.env`.
 ## Rebuilding after changes
 
 ```bash
+cd /home/services/tubemin
 docker compose up --build --pull never -d tubemin
 ```
 
