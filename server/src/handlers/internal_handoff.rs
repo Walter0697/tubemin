@@ -1,7 +1,12 @@
-use crate::{db, state::AppState, watcher};
+use crate::{
+    db,
+    service_accounts::{RequireServiceAccount, ServiceScope},
+    state::AppState,
+    watcher,
+};
 use axum::{
     extract::State,
-    http::{header, HeaderMap, StatusCode},
+    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -29,27 +34,14 @@ pub struct HandoffResponse {
 }
 
 pub async fn handoff(
+    RequireServiceAccount { principal }: RequireServiceAccount,
     State(state): State<AppState>,
-    headers: HeaderMap,
     Json(request): Json<HandoffRequest>,
 ) -> impl IntoResponse {
-    let Some(expected) = state.config.peertube_cleanup_token.as_deref() else {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "handoff is disabled"})),
-        )
-            .into_response();
-    };
-    let supplied = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "));
-    if supplied != Some(expected) {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "invalid handoff token"})),
-        )
-            .into_response();
+    if let Err(response) = (RequireServiceAccount { principal })
+        .require(ServiceScope::TransferComplete)
+    {
+        return response;
     }
     if request.items.is_empty() {
         return (

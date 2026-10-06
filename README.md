@@ -41,6 +41,22 @@ The service API provides a catalog, video metadata, original media, thumbnails, 
 
 The service-account token is only used for machine-to-machine access; existing user-facing API keys remain available for the extension and other user clients.
 
+### Machine-to-machine service accounts
+
+Tubemin can expose PeerTube-owned media to trusted consumers such as ConvertTube without sharing a user API key. Define service accounts in the read-only `service-accounts/service-accounts.toml` startup manifest and provide each token through an environment variable or Docker secret:
+
+```toml
+[[service_accounts]]
+name = "converttube"
+token_env = "TUBEMIN_CONVERTTUBE_TOKEN"
+scopes = ["catalog:read", "media:read", "transfer:complete", "transfer:fail"]
+enabled = true
+```
+
+The service API provides a catalog, video metadata, original media, thumbnails, completion/failure callbacks, and transfer history. A successful completion records the destination, removes Tubemin's local source artifacts, deletes the bot-owned PeerTube video, and keeps an audit record. Failed jobs leave the source untouched. The transfer history is available in the dashboard at `/transfers`.
+
+The service-account token is only used for machine-to-machine access; existing user-facing API keys remain available for the extension and other user clients.
+
 ## Production setup
 
 ### 1. DNS
