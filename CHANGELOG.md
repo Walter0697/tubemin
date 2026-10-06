@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.1](https://github.com/Walter0697/tubemin/compare/v0.12.0...v0.12.1) (2026-10-06)
+
+
+### Bug Fixes
+
+* authorize handoff with service accounts ([#37](https://github.com/Walter0697/tubemin/issues/37)) ([c9becda](https://github.com/Walter0697/tubemin/commit/c9becda02e65e321307961f0ad57c91e12a9fa58))
+
 ## [0.12.0](https://github.com/Walter0697/tubemin/compare/v0.11.3...v0.12.0) (2026-10-03)
 
 
