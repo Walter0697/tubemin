@@ -13,12 +13,14 @@ use std::time::Duration;
 
 /// Upper bound on entries shown in the picker. Also caps endless YouTube Mix
 /// ("RD…") lists, which yt-dlp would otherwise keep expanding.
-pub const MAX_PLAYLIST_ENTRIES: usize = 50;
+pub const DEFAULT_PLAYLIST_ENTRIES: usize = 50;
+pub const MAX_PLAYLIST_ENTRIES: usize = 200;
 const PREVIEW_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Deserialize)]
 pub struct PlaylistPreviewRequest {
     pub url: String,
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Serialize, PartialEq)]
@@ -54,7 +56,10 @@ pub fn existing_status(status: &str) -> Option<&'static str> {
 
 fn entry_available(entry: &Value) -> bool {
     let title = entry["title"].as_str().unwrap_or("");
-    if matches!(title, "[Private video]" | "[Deleted video]" | "[Unavailable video]") {
+    if matches!(
+        title,
+        "[Private video]" | "[Deleted video]" | "[Unavailable video]"
+    ) {
         return false;
     }
     !matches!(
@@ -68,6 +73,7 @@ pub fn parse_flat_playlist(
     data: &Value,
     playlist_id: &str,
     selected_video_id: Option<String>,
+    limit: usize,
 ) -> PlaylistPreview {
     let raw_entries = data["entries"].as_array().map(Vec::as_slice).unwrap_or(&[]);
     let entries: Vec<PlaylistEntry> = raw_entries
@@ -90,11 +96,11 @@ pub fn parse_flat_playlist(
                 video_id,
             })
         })
-        .take(MAX_PLAYLIST_ENTRIES)
+        .take(limit)
         .collect();
     let truncated = match data["playlist_count"].as_u64() {
         Some(count) => count as usize > entries.len(),
-        None => raw_entries.len() >= MAX_PLAYLIST_ENTRIES,
+        None => raw_entries.len() >= limit,
     };
     PlaylistPreview {
         playlist_id: playlist_id.to_string(),
@@ -105,6 +111,17 @@ pub fn parse_flat_playlist(
     }
 }
 
+pub fn validate_limit(limit: Option<usize>) -> Result<usize, &'static str> {
+    let limit = limit.unwrap_or(DEFAULT_PLAYLIST_ENTRIES);
+    if limit == 0 {
+        return Err("playlist limit must be at least 1");
+    }
+    if limit > MAX_PLAYLIST_ENTRIES {
+        return Err("playlist limit cannot exceed 200");
+    }
+    Ok(limit)
+}
+
 pub fn apply_existing_statuses(entries: &mut [PlaylistEntry], statuses: &HashMap<String, String>) {
     for entry in entries {
         entry.existing_status = statuses
@@ -113,7 +130,7 @@ pub fn apply_existing_statuses(entries: &mut [PlaylistEntry], statuses: &HashMap
     }
 }
 
-async fn run_yt_dlp(url: &str) -> Result<Value, String> {
+async fn run_yt_dlp(url: &str, limit: usize) -> Result<Value, String> {
     let mut cmd = tokio::process::Command::new("yt-dlp");
     cmd.args([
         "--flat-playlist",
@@ -122,7 +139,7 @@ async fn run_yt_dlp(url: &str) -> Result<Value, String> {
         "--no-warnings",
         "--no-cache-dir",
         "--playlist-end",
-        &MAX_PLAYLIST_ENTRIES.to_string(),
+        &limit.to_string(),
         "--",
         url,
     ])
@@ -157,15 +174,19 @@ pub async fn playlist_preview(
     let Some(playlist_id) = url_validator::youtube_playlist_id(&body.url) else {
         return error(StatusCode::BAD_REQUEST, "URL is not a YouTube playlist");
     };
+    let limit = match validate_limit(body.limit) {
+        Ok(limit) => limit,
+        Err(message) => return error(StatusCode::BAD_REQUEST, message),
+    };
     let selected = url_validator::youtube_video_id(&body.url);
-    let data = match run_yt_dlp(body.url.trim()).await {
+    let data = match run_yt_dlp(body.url.trim(), limit).await {
         Ok(data) => data,
         Err(message) => {
             tracing::warn!(url = %body.url, error = %message, "playlist preview failed");
             return error(StatusCode::BAD_GATEWAY, &message);
         }
     };
-    let mut preview = parse_flat_playlist(&data, &playlist_id, selected);
+    let mut preview = parse_flat_playlist(&data, &playlist_id, selected, limit);
     let keys: Vec<String> = preview
         .entries
         .iter()
@@ -200,7 +221,7 @@ mod tests {
 
     #[test]
     fn parses_entries_into_canonical_single_video_urls() {
-        let preview = parse_flat_playlist(&sample(), "PL123", Some("aaaaaaaaaaa".into()));
+        let preview = parse_flat_playlist(&sample(), "PL123", Some("aaaaaaaaaaa".into()), 50);
         assert_eq!(preview.title.as_deref(), Some("Road trip"));
         assert_eq!(preview.selected_video_id.as_deref(), Some("aaaaaaaaaaa"));
         assert!(!preview.truncated);
@@ -208,7 +229,10 @@ mod tests {
         let first = &preview.entries[0];
         assert_eq!(first.url, "https://www.youtube.com/watch?v=aaaaaaaaaaa");
         assert_eq!(first.duration, Some(201));
-        assert_eq!(first.thumbnail_url, "https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg");
+        assert_eq!(
+            first.thumbnail_url,
+            "https://i.ytimg.com/vi/aaaaaaaaaaa/mqdefault.jpg"
+        );
         assert!(first.available);
         assert!(!preview.entries[1].available);
         assert!(!preview.entries[2].available);
@@ -218,29 +242,31 @@ mod tests {
     fn marks_truncated_when_playlist_is_larger_than_the_cap() {
         let mut data = sample();
         data["playlist_count"] = json!(120);
-        assert!(parse_flat_playlist(&data, "PL123", None).truncated);
+        assert!(parse_flat_playlist(&data, "PL123", None, 50).truncated);
     }
 
     #[test]
     fn marks_mix_without_count_truncated_at_the_cap() {
-        let entries: Vec<Value> = (0..MAX_PLAYLIST_ENTRIES)
+        let entries: Vec<Value> = (0..DEFAULT_PLAYLIST_ENTRIES)
             .map(|i| json!({"id": format!("vid{i:08}"), "title": format!("Song {i}")}))
             .collect();
         let data = json!({"id": "RDabc", "entries": entries});
-        let preview = parse_flat_playlist(&data, "RDabc", None);
+        let preview = parse_flat_playlist(&data, "RDabc", None, 50);
         assert!(preview.truncated);
-        assert_eq!(preview.entries.len(), MAX_PLAYLIST_ENTRIES);
+        assert_eq!(preview.entries.len(), DEFAULT_PLAYLIST_ENTRIES);
     }
 
     #[test]
     fn skips_entries_without_a_valid_video_id() {
         let data = json!({"entries": [{"title": "no id"}, {"id": "bad id", "title": "x"}]});
-        assert!(parse_flat_playlist(&data, "PL1", None).entries.is_empty());
+        assert!(parse_flat_playlist(&data, "PL1", None, 50)
+            .entries
+            .is_empty());
     }
 
     #[test]
     fn maps_submission_statuses_to_picker_states() {
-        let mut preview = parse_flat_playlist(&sample(), "PL123", None);
+        let mut preview = parse_flat_playlist(&sample(), "PL123", None, 50);
         let statuses = HashMap::from([
             ("youtube:aaaaaaaaaaa".to_string(), "transcoding".to_string()),
             ("youtube:bbbbbbbbbbb".to_string(), "handed_off".to_string()),
@@ -248,9 +274,34 @@ mod tests {
         ]);
         apply_existing_statuses(&mut preview.entries, &statuses);
         let states: Vec<_> = preview.entries.iter().map(|e| e.existing_status).collect();
-        assert_eq!(states, vec![Some("active"), Some("transferred"), Some("failed")]);
+        assert_eq!(
+            states,
+            vec![Some("active"), Some("transferred"), Some("failed")]
+        );
         assert_eq!(existing_status("deleted"), Some("transferred"));
         assert_eq!(existing_status("complete"), Some("active"));
         assert_eq!(existing_status("unknown"), None);
+    }
+
+    #[test]
+    fn parses_requested_limit_instead_of_default_limit() {
+        let entries: Vec<Value> = (0..60)
+            .map(|i| json!({"id": format!("vid{i:08}"), "title": format!("Video {i}")}))
+            .collect();
+        let data = json!({"playlist_count": 60, "entries": entries});
+
+        let preview = parse_flat_playlist(&data, "PL123", None, 60);
+
+        assert_eq!(preview.entries.len(), 60);
+        assert!(!preview.truncated);
+    }
+
+    #[test]
+    fn validates_playlist_preview_limit_between_one_and_two_hundred() {
+        assert_eq!(validate_limit(None), Ok(50));
+        assert_eq!(validate_limit(Some(1)), Ok(1));
+        assert_eq!(validate_limit(Some(200)), Ok(200));
+        assert!(validate_limit(Some(0)).is_err());
+        assert!(validate_limit(Some(201)).is_err());
     }
 }

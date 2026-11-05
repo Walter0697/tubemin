@@ -842,7 +842,22 @@ a.card.card-selected {
 }
 .playlist-toolbar-actions {
   display: flex;
+  align-items: center;
   gap: 6px;
+}
+.playlist-limit-control {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+.playlist-limit-control input {
+  width: 52px;
+  padding: 5px 4px;
+  font-size: 12px;
+  text-align: center;
 }
 .playlist-list {
   list-style: none;

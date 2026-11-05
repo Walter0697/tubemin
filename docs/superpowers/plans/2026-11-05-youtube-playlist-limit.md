@@ -21,10 +21,10 @@
 - Modify: `server/src/handlers/playlist.rs`
 - Modify: `server/src/main.rs`
 
-- [ ] Add tests for the default limit, a custom limit, and invalid limits.
-- [ ] Run the focused Rust tests and confirm the new tests fail for the missing behavior.
-- [ ] Add request parsing and server-side validation, parameterize entry truncation and `yt-dlp --playlist-end`, and retain the 50 default.
-- [ ] Run the focused Rust tests and confirm they pass.
+- [x] Add tests for the default limit, a custom limit, and invalid limits.
+- [x] Run the focused Rust tests and confirm the new tests fail for the missing behavior.
+- [x] Add request parsing and server-side validation, parameterize entry truncation and `yt-dlp --playlist-end`, and retain the 50 default.
+- [x] Run the focused Rust tests and confirm they pass.
 
 ### Task 2: Add the dashboard limit control
 
@@ -32,14 +32,14 @@
 - Modify: `server/templates/dashboard.html`
 - Modify: `server/static/style.css`
 
-- [ ] Add a compact numeric field to the playlist toolbar with a 50 default and 200 maximum.
-- [ ] Track the playlist URL, submit the requested limit on Enter, show loading/error state, and refresh the modal payload.
-- [ ] Preserve existing selection controls and make the new control responsive.
-- [ ] Run the full test suite and inspect the final diff.
+- [x] Add a compact numeric field to the playlist toolbar with a 50 default and 200 maximum.
+- [x] Track the playlist URL, submit the requested limit on Enter, show loading/error state, and refresh the modal payload.
+- [x] Preserve existing selection controls and make the new control responsive.
+- [x] Run the full test suite and inspect the final diff.
 
 ### Task 3: Integrate and verify
 
-- [ ] Run the full test suite.
-- [ ] Confirm only the intended feature files changed.
+- [x] Run the full test suite.
+- [x] Confirm only the intended feature files changed.
 - [ ] Commit the feature and merge it to `main`.
 - [ ] Run the full test suite on the merged result and confirm a clean working tree.

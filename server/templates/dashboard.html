@@ -68,6 +68,10 @@
       <div class="playlist-toolbar">
         <span class="playlist-count" id="playlist-count"></span>
         <div class="playlist-toolbar-actions">
+          <label class="playlist-limit-control">
+            <span>Load up to</span>
+            <input id="playlist-limit-input" type="number" min="1" max="200" step="1" value="50" inputmode="numeric" aria-label="Maximum playlist videos to load">
+          </label>
           <button type="button" class="btn-secondary" id="playlist-all-btn">Select all</button>
           <button type="button" class="btn-secondary" id="playlist-none-btn">None</button>
         </div>
@@ -774,6 +778,8 @@
           });
           if (res.ok) {
             closeAddModal();
+            playlistPreviewUrl = url;
+            playlistLimitInput.value = 50;
             openPlaylistModal(await res.json());
             return;
           }
@@ -810,7 +816,10 @@
     const playlistCount  = document.getElementById('playlist-count');
     const playlistError  = document.getElementById('playlist-error');
     const playlistSubmit = document.getElementById('playlist-submit-btn');
+    const playlistLimitInput = document.getElementById('playlist-limit-input');
     let playlistBusy = false;
+    let playlistLoading = false;
+    let playlistPreviewUrl = '';
 
     const PLAYLIST_TAGS = {
       active: 'Already in Tubemin',
@@ -884,6 +893,46 @@
       playlistModal.hidden = false;
       playlistList.querySelector('.is-selected')?.scrollIntoView({ block: 'nearest' });
     }
+
+    async function reloadPlaylistPreview() {
+      if (playlistLoading || !playlistPreviewUrl) return;
+      const limit = Number(playlistLimitInput.value);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 200) {
+        playlistError.textContent = 'Enter a whole number from 1 to 200.';
+        playlistError.hidden = false;
+        playlistLimitInput.focus();
+        return;
+      }
+      playlistLoading = true;
+      playlistLimitInput.disabled = true;
+      playlistError.hidden = true;
+      try {
+        const res = await fetch('/api/playlist/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: playlistPreviewUrl, limit }),
+        });
+        if (!res.ok) {
+          let message = 'Could not read the playlist';
+          try { message = (await res.json()).error || message; } catch {}
+          throw new Error(message);
+        }
+        openPlaylistModal(await res.json());
+      } catch (error) {
+        playlistError.textContent = error.message || 'Could not read the playlist';
+        playlistError.hidden = false;
+      } finally {
+        playlistLoading = false;
+        playlistLimitInput.disabled = false;
+      }
+    }
+
+    playlistLimitInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        reloadPlaylistPreview();
+      }
+    });
 
     function closePlaylistModal() {
       if (playlistBusy) return;
