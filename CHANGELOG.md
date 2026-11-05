@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/Walter0697/tubemin/compare/v0.12.1...v0.13.0) (2026-11-05)
+
+
+### Features
+
+* allow larger YouTube playlist previews ([2908307](https://github.com/Walter0697/tubemin/commit/2908307528ab826162c1d37a156d76155695db87))
+
 ## [0.12.1](https://github.com/Walter0697/tubemin/compare/v0.12.0...v0.12.1) (2026-10-06)
 
 
