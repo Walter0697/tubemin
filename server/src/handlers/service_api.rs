@@ -121,7 +121,54 @@ fn local_mime(path: &FsPath) -> &'static str {
 fn submission_map(submissions: Vec<Submission>) -> HashMap<String, Submission> {
     submissions
         .into_iter()
-        .filter_map(|submission| submission.peertube_uuid.clone().map(|uuid| (uuid, submission)))
+        .filter_map(|submission| {
+            submission
+                .peertube_uuid
+                .clone()
+                .map(|uuid| (uuid, submission))
+        })
+        .collect()
+}
+
+fn build_catalog_items(
+    submissions: Vec<Submission>,
+    listed: Vec<ListedVideo>,
+    scheme: &str,
+    public_domain: &str,
+) -> Vec<ServiceCatalogItem> {
+    let listed_by_uuid = listed
+        .into_iter()
+        .map(|video| (video.uuid.clone(), video))
+        .collect::<HashMap<_, _>>();
+
+    submissions
+        .into_iter()
+        .filter_map(|submission| {
+            let uuid = submission.peertube_uuid?;
+            let listed_video = listed_by_uuid.get(&uuid);
+            let title = submission
+                .title
+                .or_else(|| listed_video.map(|video| video.title.clone()))?;
+            let thumbnail_path = listed_video
+                .and_then(|video| {
+                    video
+                        .thumbnail_path
+                        .as_deref()
+                        .or(video.preview_path.as_deref())
+                })
+                .or(submission.peertube_thumb.as_deref());
+
+            Some(ServiceCatalogItem {
+                id: uuid,
+                title,
+                thumbnail_url: thumbnail_path
+                    .map(|path| public_thumbnail_url(scheme, public_domain, path))
+                    .unwrap_or_default(),
+                published_at: listed_video.and_then(|video| video.published_at.clone()),
+                processing_state: submission.status,
+                original_media_available: true,
+            })
+        })
         .collect()
 }
 
@@ -175,30 +222,16 @@ pub async fn service_catalog(
     let listed = match peertube::list_account_videos(url, host, username, password, None).await {
         Ok(videos) => videos,
         Err(error) => {
-            tracing::error!(error = %error, "service catalog PeerTube lookup failed");
-            return service_error(StatusCode::BAD_GATEWAY, "PeerTube catalog lookup failed");
+            tracing::warn!(error = %error, "service catalog PeerTube enrichment failed; returning database catalog");
+            Vec::new()
         }
     };
-    let known = by_uuid.keys().cloned().collect::<HashSet<_>>();
-    let videos = filter_owned_videos(listed, &known)
-        .into_iter()
-        .filter_map(|video| {
-            let submission = by_uuid.get(&video.uuid)?;
-            Some(ServiceCatalogItem {
-                id: video.uuid.clone(),
-                title: submission.title.clone().unwrap_or(video.title),
-                thumbnail_url: video
-                    .thumbnail_path
-                    .as_deref()
-                    .or(video.preview_path.as_deref())
-                    .map(|path| public_thumbnail_url(scheme, public_domain, path))
-                    .unwrap_or_default(),
-                published_at: video.published_at,
-                processing_state: submission.status.clone(),
-                original_media_available: true,
-            })
-        })
-        .collect::<Vec<_>>();
+    let videos = build_catalog_items(
+        by_uuid.into_values().collect(),
+        listed,
+        scheme,
+        public_domain,
+    );
     Json(json!({ "videos": videos })).into_response()
 }
 
@@ -632,6 +665,46 @@ mod tests {
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].uuid, "known");
+    }
+
+    #[test]
+    fn catalog_items_keep_active_submission_when_peer_tube_listing_is_incomplete() {
+        let submission = Submission {
+            id: "submission-1".into(),
+            url: "https://youtube.example/video-1".into(),
+            source_url: None,
+            source: None,
+            title: Some("Saved title".into()),
+            filename: Some("video-1.mp4".into()),
+            peertube_thumb: None,
+            peertube_uuid: Some("uuid-1".into()),
+            api_key_id: None,
+            submitter_sub: None,
+            submitter_display: None,
+            submitter_tag: None,
+            status: "imported".into(),
+            is_direct: false,
+            download_method: None,
+            download_retries: 0,
+            downloading_at: None,
+            imported_at: None,
+            transcoding_at: None,
+            completed_at: None,
+            submitted_at: "2026-11-05T00:00:00Z".into(),
+            updated_at: "2026-11-05T00:00:00Z".into(),
+        };
+
+        let result = build_catalog_items(
+            vec![submission],
+            Vec::new(),
+            "https",
+            "videos.example.com",
+        );
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, "uuid-1");
+        assert_eq!(result[0].title, "Saved title");
+        assert!(result[0].original_media_available);
     }
 
     #[test]
