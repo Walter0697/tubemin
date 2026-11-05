@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.1](https://github.com/Walter0697/tubemin/compare/v0.13.0...v0.13.1) (2026-11-05)
+
+
+### Bug Fixes
+
+* keep active submissions in service catalog ([ceb7be8](https://github.com/Walter0697/tubemin/commit/ceb7be8f7c44294666f841703a0504c9c67176d7))
+
 ## [0.13.0](https://github.com/Walter0697/tubemin/compare/v0.12.1...v0.13.0) (2026-11-05)
 
 
