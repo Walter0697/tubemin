@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/Walter0697/tubemin/compare/v0.13.3...v0.14.0) (2026-11-06)
+
+
+### Features
+
+* continuously retry PeerTube uploads ([5016e49](https://github.com/Walter0697/tubemin/commit/5016e49fc89bee187288b7dd9ee550ee91d71e47))
+
 ## [0.13.3](https://github.com/Walter0697/tubemin/compare/v0.13.2...v0.13.3) (2026-11-06)
 
 
