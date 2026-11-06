@@ -14,7 +14,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::{HashMap, HashSet}, path::{Path as FsPath, PathBuf}};
+use std::{collections::HashSet, path::{Path as FsPath, PathBuf}};
 use tokio_util::io::ReaderStream;
 use uuid::Uuid;
 
@@ -118,53 +118,30 @@ fn local_mime(path: &FsPath) -> &'static str {
     }
 }
 
-fn submission_map(submissions: Vec<Submission>) -> HashMap<String, Submission> {
-    submissions
-        .into_iter()
-        .filter_map(|submission| {
-            submission
-                .peertube_uuid
-                .clone()
-                .map(|uuid| (uuid, submission))
-        })
-        .collect()
-}
-
 fn build_catalog_items(
     submissions: Vec<Submission>,
-    listed: Vec<ListedVideo>,
     scheme: &str,
-    public_domain: &str,
+    public_domain: Option<&str>,
 ) -> Vec<ServiceCatalogItem> {
-    let listed_by_uuid = listed
-        .into_iter()
-        .map(|video| (video.uuid.clone(), video))
-        .collect::<HashMap<_, _>>();
-
     submissions
         .into_iter()
         .filter_map(|submission| {
             let uuid = submission.peertube_uuid?;
-            let listed_video = listed_by_uuid.get(&uuid);
             let title = submission
                 .title
-                .or_else(|| listed_video.map(|video| video.title.clone()))?;
-            let thumbnail_path = listed_video
-                .and_then(|video| {
-                    video
-                        .thumbnail_path
-                        .as_deref()
-                        .or(video.preview_path.as_deref())
-                })
-                .or(submission.peertube_thumb.as_deref());
+                .or(submission.filename)
+                .unwrap_or_else(|| uuid.clone());
 
             Some(ServiceCatalogItem {
                 id: uuid,
                 title,
-                thumbnail_url: thumbnail_path
-                    .map(|path| public_thumbnail_url(scheme, public_domain, path))
+                thumbnail_url: submission
+                    .peertube_thumb
+                    .as_deref()
+                    .zip(public_domain)
+                    .map(|(path, domain)| public_thumbnail_url(scheme, domain, path))
                     .unwrap_or_default(),
-                published_at: listed_video.and_then(|video| video.published_at.clone()),
+                published_at: None,
                 processing_state: submission.status,
                 original_media_available: true,
             })
@@ -199,13 +176,6 @@ pub async fn service_catalog(
     {
         return response;
     }
-    let (url, host, username, password) = match peertube_credentials(&state) {
-        Ok(credentials) => credentials,
-        Err(response) => return response,
-    };
-    let Some(public_domain) = state.config.peertube_domain.as_deref() else {
-        return service_error(StatusCode::SERVICE_UNAVAILABLE, "PeerTube public host is not configured");
-    };
     let scheme = request
         .headers()
         .get("x-forwarded-proto")
@@ -218,19 +188,10 @@ pub async fn service_catalog(
             return service_error(StatusCode::INTERNAL_SERVER_ERROR, "catalog lookup failed");
         }
     };
-    let by_uuid = submission_map(submissions);
-    let listed = match peertube::list_account_videos(url, host, username, password, None).await {
-        Ok(videos) => videos,
-        Err(error) => {
-            tracing::warn!(error = %error, "service catalog PeerTube enrichment failed; returning database catalog");
-            Vec::new()
-        }
-    };
     let videos = build_catalog_items(
-        by_uuid.into_values().collect(),
-        listed,
+        submissions,
         scheme,
-        public_domain,
+        state.config.peertube_domain.as_deref(),
     );
     Json(json!({ "videos": videos })).into_response()
 }
@@ -694,12 +655,7 @@ mod tests {
             updated_at: "2026-11-05T00:00:00Z".into(),
         };
 
-        let result = build_catalog_items(
-            vec![submission],
-            Vec::new(),
-            "https",
-            "videos.example.com",
-        );
+        let result = build_catalog_items(vec![submission], "https", Some("videos.example.com"));
 
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, "uuid-1");
