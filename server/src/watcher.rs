@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use sqlx::SqlitePool;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -7,12 +8,23 @@ use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
 use tracing::{error, info, warn};
 
+const MAX_QUEUE_RETRY_DELAY: Duration = Duration::from_secs(15 * 60);
+
+fn queue_retry_delay(retry_after: Option<Duration>, attempts: i64) -> Duration {
+    if let Some(delay) = retry_after {
+        return delay.min(MAX_QUEUE_RETRY_DELAY);
+    }
+    let exponent = attempts.saturating_sub(1).clamp(0, 5) as u32;
+    Duration::from_secs((30_u64 << exponent).min(MAX_QUEUE_RETRY_DELAY.as_secs()))
+}
+
 static UPLOAD_LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
 
 pub(crate) fn upload_lock() -> &'static Mutex<()> {
     UPLOAD_LOCK.get_or_init(|| Mutex::new(()))
 }
 
+#[derive(Clone)]
 pub struct PeerTubeConfig {
     pub url: String,
     pub host: Option<String>,
@@ -50,15 +62,7 @@ pub async fn retry_import_dir(
             continue;
         };
 
-        let row: Option<(String, Option<String>)> = match sqlx::query_as(
-            "SELECT status, peertube_uuid FROM submissions
-             WHERE filename = ? AND status IN ('imported', 'error')
-             ORDER BY submitted_at DESC LIMIT 1",
-        )
-        .bind(filename)
-        .fetch_optional(pool)
-        .await
-        {
+        let row = match crate::db::get_peertube_queue_row(pool, filename).await {
             Ok(row) => row,
             Err(e) => {
                 error!(error = %e, filename, "startup import recovery: database lookup failed");
@@ -66,7 +70,7 @@ pub async fn retry_import_dir(
             }
         };
 
-        let Some((status, peertube_uuid)) = row else {
+        let Some((status, peertube_uuid, attempts, next_retry_at)) = row else {
             continue;
         };
         if peertube_uuid.is_some() {
@@ -74,6 +78,13 @@ pub async fn retry_import_dir(
                 filename,
                 status, "startup import recovery: PeerTube video already exists"
             );
+            continue;
+        }
+        if next_retry_at
+            .as_deref()
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .is_some_and(|next| next > Utc::now())
+        {
             continue;
         }
 
@@ -97,6 +108,7 @@ pub async fn retry_import_dir(
             filename,
             status, "startup import recovery: retrying PeerTube upload"
         );
+        let _upload_guard = upload_lock().lock().await;
         match crate::peertube::upload(
             &pt.url,
             pt.host.as_deref(),
@@ -131,7 +143,22 @@ pub async fn retry_import_dir(
                 );
             }
             Err(e) => {
-                warn!(error = %e, filename, "startup import recovery: PeerTube upload still failed")
+                let delay = queue_retry_delay(crate::peertube::retry_after(&e), attempts + 1);
+                let next_retry_at = (Utc::now()
+                    + chrono::Duration::from_std(delay)
+                        .unwrap_or_else(|_| chrono::Duration::minutes(15)))
+                .to_rfc3339();
+                if let Err(db_error) = crate::db::schedule_peertube_retry(
+                    pool,
+                    filename,
+                    &next_retry_at,
+                    &e.to_string(),
+                )
+                .await
+                {
+                    error!(error = %db_error, filename, "startup import recovery: failed to schedule retry");
+                }
+                warn!(error = %e, filename, ?delay, "startup import recovery: PeerTube upload still failed; retry scheduled")
             }
         }
     }
@@ -144,6 +171,18 @@ pub fn start(
     peertube: Option<PeerTubeConfig>,
 ) -> tokio::task::JoinHandle<()> {
     let peertube = Arc::new(peertube);
+    if let Some(pt) = peertube.as_ref().as_ref() {
+        let queue_import_dir = import_dir.clone();
+        let queue_pool = pool.clone();
+        let queue_pt = pt.clone();
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(30));
+            loop {
+                ticker.tick().await;
+                retry_import_dir(&queue_import_dir, queue_pool.as_ref(), &queue_pt).await;
+            }
+        });
+    }
     tokio::spawn(async move {
         let mut seen: HashSet<PathBuf> = HashSet::new();
 
@@ -590,6 +629,21 @@ mod tests {
         assert!(has_audio_and_video_streams("video\naudio\n"));
         assert!(!has_audio_and_video_streams("video\n"));
         assert!(!has_audio_and_video_streams("audio\n"));
+    }
+
+    #[test]
+    fn retry_delay_honors_peer_tube_retry_after() {
+        assert_eq!(
+            queue_retry_delay(Some(Duration::from_secs(47)), 1),
+            Duration::from_secs(47)
+        );
+    }
+
+    #[test]
+    fn retry_delay_uses_bounded_exponential_backoff_without_header() {
+        assert_eq!(queue_retry_delay(None, 1), Duration::from_secs(30));
+        assert_eq!(queue_retry_delay(None, 2), Duration::from_secs(60));
+        assert_eq!(queue_retry_delay(None, 10), Duration::from_secs(900));
     }
 
     #[test]

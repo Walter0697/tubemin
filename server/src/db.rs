@@ -405,13 +405,52 @@ pub async fn set_peertube_thumb(
     peertube_uuid: &str,
 ) -> Result<(), sqlx::Error> {
     let now = Utc::now().to_rfc3339();
-    sqlx::query("UPDATE submissions SET peertube_thumb = ?, peertube_uuid = ?, updated_at = ? WHERE filename = ?")
+    sqlx::query(
+        "UPDATE submissions SET peertube_thumb = ?, peertube_uuid = ?,\n         peertube_next_retry_at = NULL, peertube_last_error = NULL, updated_at = ? WHERE filename = ?",
+    )
         .bind(thumb_path)
         .bind(peertube_uuid)
         .bind(&now)
         .bind(filename)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+pub async fn get_peertube_queue_row(
+    pool: &SqlitePool,
+    filename: &str,
+) -> Result<Option<(String, Option<String>, i64, Option<String>)>, sqlx::Error> {
+    sqlx::query_as(
+        "SELECT status, peertube_uuid, peertube_upload_attempts, peertube_next_retry_at
+         FROM submissions
+         WHERE filename = ? AND status IN ('imported', 'error')
+         ORDER BY submitted_at DESC LIMIT 1",
+    )
+    .bind(filename)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn schedule_peertube_retry(
+    pool: &SqlitePool,
+    filename: &str,
+    next_retry_at: &str,
+    error: &str,
+) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE submissions
+         SET peertube_next_retry_at = ?, peertube_upload_attempts = peertube_upload_attempts + 1,
+             peertube_last_error = ?, updated_at = ?
+         WHERE filename = ? AND peertube_uuid IS NULL AND status IN ('imported', 'error')",
+    )
+    .bind(next_retry_at)
+    .bind(error)
+    .bind(&now)
+    .bind(filename)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -1148,6 +1187,59 @@ mod tests {
         let rows = list_submissions(&pool).await.unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status, "pending");
+    }
+
+    #[tokio::test]
+    async fn peertube_upload_retry_metadata_is_durable_and_cleared_on_success() {
+        let pool = test_pool().await;
+        create_submission(
+            &pool,
+            "queue-id",
+            "https://example.com/queue",
+            None,
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        sqlx::query("UPDATE submissions SET status = 'imported', filename = ? WHERE id = ?")
+            .bind("queued.mp4")
+            .bind("queue-id")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let next_retry = "2026-11-06T05:00:00+00:00";
+        schedule_peertube_retry(&pool, "queued.mp4", next_retry, "429")
+            .await
+            .unwrap();
+        let row = get_peertube_queue_row(&pool, "queued.mp4")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.2, 1);
+        assert_eq!(row.3.as_deref(), Some(next_retry));
+
+        set_peertube_thumb(&pool, "queued.mp4", "/thumb.jpg", "uuid-queue")
+            .await
+            .unwrap();
+        let row = get_peertube_queue_row(&pool, "queued.mp4")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.1.as_deref(), Some("uuid-queue"));
+        let metadata: (Option<String>, Option<String>) = sqlx::query_as(
+            "SELECT peertube_next_retry_at, peertube_last_error FROM submissions WHERE id = 'queue-id'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(metadata, (None, None));
     }
 
     #[tokio::test]

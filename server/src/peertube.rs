@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use reqwest::{Client, Response, Url};
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -168,6 +169,18 @@ mod tests {
         assert!(access_token_is_fresh(&fresh, now));
         assert!(!access_token_is_fresh(&expired, now));
     }
+
+    #[test]
+    fn retry_after_is_exposed_from_peer_tube_request_errors() {
+        let error = request_error(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            &[(reqwest::header::RETRY_AFTER, "42".parse().unwrap())]
+                .into_iter()
+                .collect(),
+            "rate limited".into(),
+        );
+        assert_eq!(retry_after(&error), Some(Duration::from_secs(42)));
+    }
 }
 
 #[derive(Deserialize)]
@@ -179,6 +192,45 @@ struct OAuthClient {
 #[derive(Deserialize)]
 struct TokenResponse {
     access_token: String,
+}
+
+#[derive(Debug)]
+pub struct PeerTubeRequestError {
+    message: String,
+    retry_after: Option<Duration>,
+}
+
+impl Display for PeerTubeRequestError {
+    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for PeerTubeRequestError {}
+
+pub fn retry_after(error: &anyhow::Error) -> Option<Duration> {
+    error
+        .downcast_ref::<PeerTubeRequestError>()
+        .and_then(|error| error.retry_after)
+}
+
+fn retry_after_header(headers: &reqwest::header::HeaderMap) -> Option<Duration> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(Duration::from_secs)
+}
+
+fn request_error(
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: String,
+) -> anyhow::Error {
+    anyhow::Error::new(PeerTubeRequestError {
+        message: format!("PeerTube request failed ({}): {}", status, body),
+        retry_after: retry_after_header(headers),
+    })
 }
 
 #[derive(Deserialize)]
@@ -634,17 +686,21 @@ async fn fetch_access_token(
         .map(|s| s.to_string())
         .unwrap_or_else(|| derive_host(url));
 
-    let body = client()
+    let response = client()
         .get(format!("{}/api/v1/oauth-clients/local", url))
         .header("Host", &host)
         .send()
-        .await?
-        .text()
         .await?;
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = response.text().await?;
+    if !status.is_success() {
+        return Err(request_error(status, &headers, body));
+    }
     let oauth: OAuthClient = serde_json::from_str(&body)
         .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
 
-    let body = client()
+    let response = client()
         .post(format!("{}/api/v1/users/token", url))
         .header("Host", &host)
         .form(&[
@@ -656,9 +712,13 @@ async fn fetch_access_token(
             ("password", password),
         ])
         .send()
-        .await?
-        .text()
         .await?;
+    let status = response.status();
+    let headers = response.headers().clone();
+    let body = response.text().await?;
+    if !status.is_success() {
+        return Err(request_error(status, &headers, body));
+    }
     let token: TokenResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
     *cached = Some(CachedAccessToken {
@@ -1142,8 +1202,9 @@ pub async fn upload(
 
     if !resp.status().is_success() {
         let status = resp.status();
+        let headers = resp.headers().clone();
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("PeerTube upload failed ({}): {}", status, body));
+        return Err(request_error(status, &headers, body));
     }
 
     let body = resp.text().await?;
