@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.3](https://github.com/Walter0697/tubemin/compare/v0.13.2...v0.13.3) (2026-11-06)
+
+
+### Bug Fixes
+
+* reuse cached PeerTube token for uploads ([9bbe635](https://github.com/Walter0697/tubemin/commit/9bbe6351c188733819761eb009d479326a2da193))
+
 ## [0.13.2](https://github.com/Walter0697/tubemin/compare/v0.13.1...v0.13.2) (2026-11-06)
 
 
