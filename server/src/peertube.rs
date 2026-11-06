@@ -1047,35 +1047,8 @@ pub async fn upload(
         .map(|s| s.to_string())
         .unwrap_or_else(|| derive_host(url));
 
-    let client = Client::new();
-
-    // 1. Get OAuth client credentials
-    let resp = client
-        .get(format!("{}/api/v1/oauth-clients/local", url))
-        .header("Host", &host)
-        .send()
-        .await?;
-    let body = resp.text().await?;
-    let oauth: OAuthClient = serde_json::from_str(&body)
-        .map_err(|e| anyhow!("oauth-clients parse error ({e}): {body}"))?;
-
-    // 2. Exchange credentials for access token
-    let resp = client
-        .post(format!("{}/api/v1/users/token", url))
-        .header("Host", &host)
-        .form(&[
-            ("client_id", oauth.client_id.as_str()),
-            ("client_secret", oauth.client_secret.as_str()),
-            ("grant_type", "password"),
-            ("response_type", "code"),
-            ("username", username),
-            ("password", password),
-        ])
-        .send()
-        .await?;
-    let body = resp.text().await?;
-    let token: TokenResponse =
-        serde_json::from_str(&body).map_err(|e| anyhow!("token parse error ({e}): {body}"))?;
+    let client = client();
+    let token = fetch_access_token(url, host_override, username, password).await?;
 
     // 3. Find the user's default channel
     let resp = client
@@ -1084,7 +1057,7 @@ pub async fn upload(
             url, username
         ))
         .header("Host", &host)
-        .bearer_auth(&token.access_token)
+        .bearer_auth(&token)
         .send()
         .await?;
     let body = resp.text().await?;
@@ -1162,7 +1135,7 @@ pub async fn upload(
     let resp = client
         .post(format!("{}/api/v1/videos/upload", url))
         .header("Host", &host)
-        .bearer_auth(&token.access_token)
+        .bearer_auth(&token)
         .multipart(form)
         .send()
         .await?;
@@ -1182,7 +1155,7 @@ pub async fn upload(
     let details_resp = client
         .get(format!("{}/api/v1/videos/{}", url, upload.video.uuid))
         .header("Host", &host)
-        .bearer_auth(&token.access_token)
+        .bearer_auth(&token)
         .send()
         .await?;
     if details_resp.status().is_success() {
