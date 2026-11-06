@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.2](https://github.com/Walter0697/tubemin/compare/v0.13.1...v0.13.2) (2026-11-06)
+
+
+### Bug Fixes
+
+* serve service catalog from database ([b8eccc9](https://github.com/Walter0697/tubemin/commit/b8eccc9bbbd824a6b9e0bc6789c2b4cf17f9ece4))
+
 ## [0.13.1](https://github.com/Walter0697/tubemin/compare/v0.13.0...v0.13.1) (2026-11-05)
 
 
